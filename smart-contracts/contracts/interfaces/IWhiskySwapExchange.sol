@@ -7,7 +7,9 @@ interface IWhiskySwapExchange {
         address indexed recipient,
         uint256[] tokensBoughtIds,
         uint256[] tokensBoughtAmounts,
-        uint256[] currencySoldAmounts
+        uint256[] currencySoldAmounts,
+        address[] extraFeeRecipients,
+        uint256[] extraFeeAmounts
     );
 
     event CurrencyPurchase(
@@ -15,7 +17,9 @@ interface IWhiskySwapExchange {
         address indexed recipient,
         uint256[] tokensSoldIds,
         uint256[] tokensSoldAmounts,
-        uint256[] currencyBoughtAmounts
+        uint256[] currencyBoughtAmounts,
+        address[] extraFeeRecipients,
+        uint256[] extraFeeAmounts
     );
 
     event LiquidityAdded(
@@ -33,17 +37,13 @@ interface IWhiskySwapExchange {
         address indexed provider, uint256[] tokenIds, uint256[] tokenAmounts, LiquidityRemovedEventObj[] details
     );
 
-    // OnReceive Objects
-    struct BuyTokensObj {
-        address recipient; // Who receives the tokens
-        uint256[] tokensBoughtIDs; // Token IDs to buy
-        uint256[] tokensBoughtAmounts; // Amount of token to buy for each ID
-        uint256 deadline; // Timestamp after which the tx isn't valid anymore
-    }
+    event RoyaltyChanged(address indexed royaltyRecipient, uint256 royaltyFee);
 
     struct SellTokensObj {
         address recipient; // Who receives the currency
         uint256 minCurrency; // Total minimum number of currency  expected for all tokens sold
+        address[] extraFeeRecipients; // Array of addresses that will receive extra fee
+        uint256[] extraFeeAmounts; // Array of amounts of currency that will be sent as extra fee
         uint256 deadline; // Timestamp after which the tx isn't valid anymore
     }
 
@@ -57,6 +57,47 @@ interface IWhiskySwapExchange {
         uint256[] minTokens; // Minimum number of tokens to withdraw
         uint256 deadline; // Timestamp after which the tx isn't valid anymore
     }
+
+    //
+    // Purchasing Functions
+    //
+
+    /**
+     * @notice Convert currency tokens to Tokens _id and transfers Tokens to recipient.
+     * @dev User specifies MAXIMUM inputs (_maxCurrency) and EXACT outputs.
+     * @dev Assumes that all trades will be successful, or revert the whole tx
+     * @dev Exceeding currency tokens sent will be refunded to recipient
+     * @dev Sorting IDs is mandatory for efficient way of preventing duplicated IDs (which would lead to exploit)
+     * @param _tokenIds            Array of Tokens ID that are bought
+     * @param _tokensBoughtAmounts Amount of Tokens id bought for each corresponding Token id in _tokenIds
+     * @param _maxCurrency         Total maximum amount of currency tokens to spend for all Token ids
+     * @param _deadline            Timestamp after which this transaction will be reverted
+     * @param _recipient           The address that receives output Tokens and refund
+     * @param _extraFeeRecipients  Array of addresses that will receive extra fee
+     * @param _extraFeeAmounts     Array of amounts of currency that will be sent as extra fee
+     * @return currencySold How much currency was actually sold.
+     */
+    function buyTokens(
+        uint256[] memory _tokenIds,
+        uint256[] memory _tokensBoughtAmounts,
+        uint256 _maxCurrency,
+        uint256 _deadline,
+        address _recipient,
+        address[] memory _extraFeeRecipients,
+        uint256[] memory _extraFeeAmounts
+    ) external returns (uint256[] memory);
+
+    //
+    // Royalties Functions
+    //
+
+    /**
+     * @notice Will send the royalties that _royaltyRecipient can claim, if any
+     * @dev Anyone can call this function such that payout could be distributed
+     * regularly instead of being claimed.
+     * @param _royaltyRecipient Address that is able to claim royalties
+     */
+    function sendRoyalties(address _royaltyRecipient) external;
 
     //
     // OnReceive Functions
@@ -110,8 +151,23 @@ interface IWhiskySwapExchange {
      */
     function getBuyPrice(uint256 _assetBoughtAmount, uint256 _assetSoldReserve, uint256 _assetBoughtReserve)
         external
-        pure
+        view
         returns (uint256);
+
+    /**
+     * @dev Pricing function used for converting Tokens to currency token (including royalty fee)
+     * @param _tokenId            Id ot token being sold
+     * @param _assetBoughtAmount  Amount of Tokens being bought.
+     * @param _assetSoldReserve   Amount of currency tokens in exchange reserves.
+     * @param _assetBoughtReserve Amount of Tokens (output type) in exchange reserves.
+     * @return price Amount of currency tokens to send to WhiskySwap.
+     */
+    function getBuyPriceWithRoyalty(
+        uint256 _tokenId,
+        uint256 _assetBoughtAmount,
+        uint256 _assetSoldReserve,
+        uint256 _assetBoughtReserve
+    ) external view returns (uint256 price);
 
     /**
      * @dev Pricing function used for converting Tokens to currency token.
@@ -122,8 +178,23 @@ interface IWhiskySwapExchange {
      */
     function getSellPrice(uint256 _assetSoldAmount, uint256 _assetSoldReserve, uint256 _assetBoughtReserve)
         external
-        pure
+        view
         returns (uint256);
+
+    /**
+     * @dev Pricing function used for converting Tokens to currency token (including royalty fee)
+     * @param _tokenId            Id ot token being sold
+     * @param _assetSoldAmount    Amount of Tokens being sold.
+     * @param _assetSoldReserve   Amount of Tokens in exchange reserves.
+     * @param _assetBoughtReserve Amount of currency tokens in exchange reserves.
+     * @return price Amount of currency tokens to receive from WhiskySwap.
+     */
+    function getSellPriceWithRoyalty(
+        uint256 _tokenId,
+        uint256 _assetSoldAmount,
+        uint256 _assetSoldReserve,
+        uint256 _assetBoughtReserve
+    ) external view returns (uint256 price);
 
     /**
      * @notice Get amount of currency in reserve for each Token _id in _ids
@@ -167,12 +238,35 @@ interface IWhiskySwapExchange {
     function getTokenAddress() external view returns (address);
 
     /**
-     * @return Address of the currency contract that is used as currency and its corresponding id
+     * @return LP fee per 1000 units
      */
-    function getCurrencyInfo() external view returns (address, uint256);
+    function getLPFee() external view returns (uint256);
+
+    /**
+     * @return Address of the currency contract that is used as currency
+     */
+    function getCurrencyInfo() external view returns (address);
 
     /**
      * @return Address of factory that created this exchange.
      */
     function getFactoryAddress() external view returns (address);
+
+    /**
+     * @return Global royalty fee % if not supporting ERC-2981
+     */
+    function getGlobalRoyaltyFee() external view returns (uint256);
+
+    /**
+     * @return Global royalty recipient if token not supporting ERC-2981
+     */
+    function getGlobalRoyaltyRecipient() external view returns (address);
+
+    /**
+     * @return Get amount of currency in royalty an address can claim
+     * @param _royaltyRecipient Address to check the claimable royalties
+     */
+    function getRoyalties(address _royaltyRecipient) external view returns (uint256);
+
+    function getRoyaltiesNumerator(address _royaltyRecipient) external view returns (uint256);
 }
