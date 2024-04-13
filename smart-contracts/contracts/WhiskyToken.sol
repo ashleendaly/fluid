@@ -6,17 +6,24 @@ import "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC1155/extensions/ERC1155Burnable.sol";
 
+import {WhiskySwapFactory} from "./exchange/WhiskySwapFactory.sol";
+
 contract CaskTokenContract is ERC1155, Ownable {
     uint256[] private allCasksCreated;
     constructor(address initialOwner) ERC1155("") Ownable(initialOwner) {
 
     }
 
-    function mintNewCask(address accountTokenBeingSentTo, uint256 id) public {
+    function mintNewCask(uint256 id) public {
         bytes memory defaultData = hex"12";
         uint256 amount = 1000;
-        _mint(accountTokenBeingSentTo, id, amount, defaultData);
-        // call liquidity pool factory
+        address factoryAddress = 0xEc51A870f5397f6eC42D92A62E87b3Bc890B0DD9;
+        _mint(factoryAddress, id, amount, defaultData);
+
+        WhiskySwapFactory WhiskeyFactory = WhiskySwapFactory(factoryAddress);
+
+        // WhiskeyFactory.createExchange( erc1155address, currencyaddress (dont know what these are), id)
+
     }
     
     function mintBatch(address to, uint256[] memory ids, bytes memory data) public {
