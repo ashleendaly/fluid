@@ -22,7 +22,11 @@ contract CaskTokenContract is ERC1155, Ownable {
 
         WhiskySwapFactory WhiskeyFactory = WhiskySwapFactory(factoryAddress);
 
+<<<<<<< HEAD
         WhiskeyFactory.createExchange( erc1155address, 0x1D2F0da169ceB9fC7B3144628dB156f3F6c60dBE, id);
+=======
+        // WhiskeyFactory.createExchange(0xD5Cb53f53A2920C4e5e62908aEE103f702a0BDE5, currencyaddress (dont know what these are), id)
+>>>>>>> origin/main
 
     }
     
