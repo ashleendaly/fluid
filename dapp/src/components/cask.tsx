@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useContext } from 'react';
 import { EthersContext } from "@/context/wallet"; // we connect the wallet in here because we want to fetch the client balance.
-// import Link from "next/link";
+import Link from "next/link";
 
 function Cask() {
     const [isBuyClicked, setIsBuyClicked] = useState(false);
