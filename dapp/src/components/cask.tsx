@@ -11,6 +11,7 @@ export default function Cask() {
     const [walletBalance, setWalletBalance] = useState(0);
     const [warning, setWarning] = useState('');
     const [inputValue, setInputValue] = useState('');
+    const [caskTokensInPool, setCaskTokensInPool] = useState(0);
     const [caskData, setCaskData] = useState({  
         caskID: 0,     
         tokensInLiquidityPool: 0,
@@ -54,6 +55,18 @@ export default function Cask() {
             setWarning('Insufficient wallet balance');
         }
     };
+
+    const handleSellClick = () => {
+        if (parseInt(inputValue) <= caskData.tokensInLiquidityPool) {
+            try {
+                // Execute sell function in the backend contract
+            } catch (error) {
+                console.error('Error executing buy function:', error);
+            }
+        } else {
+            setWarning('Insufficient liquidity pool token balance for this cask');
+        }
+    }
 
   return (
     <div className="">
