@@ -3,17 +3,20 @@ pragma solidity ^0.8.4;
 
 import {IWhiskySwapExchange} from "../interfaces/IWhiskySwapExchange.sol";
 import {ReentrancyGuard} from "../utils/ReentrancyGuard.sol";
+import {DelegatedOwnable} from "../utils/DelegatedOwnable.sol";
+import {IERC2981} from "../interfaces/IERC2981.sol";
+import {IERC1155Metadata} from "../interfaces/IERC1155Metadata.sol";
+import {IDelegatedERC1155Metadata} from "../interfaces/IDelegatedERC1155Metadata.sol";
+import {IERC20} from "@0xsequence/erc-1155/contracts/interfaces/IERC20.sol";
 import {IERC165} from "@0xsequence/erc-1155/contracts/interfaces/IERC165.sol";
 import {IERC1155} from "@0xsequence/erc-1155/contracts/interfaces/IERC1155.sol";
 import {IERC1155TokenReceiver} from "@0xsequence/erc-1155/contracts/interfaces/IERC1155TokenReceiver.sol";
 import {ERC1155MintBurn} from "@0xsequence/erc-1155/contracts/tokens/ERC1155/ERC1155MintBurn.sol";
+import {TransferHelper} from "@uniswap/lib/contracts/libraries/TransferHelper.sol";
 
 /**
  * This Uniswap-like implementation supports ERC-1155 standard tokens
- * with an ERC-1155 based token used as a currency instead of Ether.
- *
- * See https://github.com/0xsequence/erc20-meta-token for a generalized
- * ERC-20 => ERC-1155 token wrapper
+ * with an ERC-20 based token used as a currency instead of Ether.
  *
  * Liquidity tokens are also ERC-1155 tokens you can find the ERC-1155
  * implementation used here:
@@ -22,19 +25,35 @@ import {ERC1155MintBurn} from "@0xsequence/erc-1155/contracts/tokens/ERC1155/ERC
  * @dev Like Uniswap, tokens with 0 decimals and low supply are susceptible to significant rounding
  * errors when it comes to removing liquidity, possibly preventing them to be withdrawn without
  * some collaboration between liquidity providers.
+ *
+ * @dev ERC-777 tokens may be vulnerable if used as currency in WhiskySwap. Please review the code
+ * carefully before using it with ERC-777 tokens.
  */
-contract WhiskySwapExchange is ReentrancyGuard, ERC1155MintBurn, IWhiskySwapExchange {
+contract WhiskySwapExchange is
+    ReentrancyGuard,
+    ERC1155MintBurn,
+    IWhiskySwapExchange,
+    IERC1155Metadata,
+    DelegatedOwnable
+{
     // Variables
-    IERC1155 internal token; // address of the ERC-1155 token contract
-    IERC1155 internal currency; // address of the ERC-1155 currency used for exchange
-    bool internal currencyPoolBanned; // Whether the currency token ID can have a pool or not
-    address internal factory; // address for the factory that created this contract
-    uint256 internal currencyID; // ID of currency token in ERC-1155 currency contract
-    uint256 internal constant FEE_MULTIPLIER = 995; // Multiplier that calculates the fee (1.0%)
+    IERC1155 internal immutable token; // address of the ERC-1155 token contract
+    address internal immutable currency; // address of the ERC-20 currency used for exchange
+    address internal immutable factory; // address for the factory that created this contract
+    uint256 internal immutable FEE_MULTIPLIER; // multiplier that calculates the LP fee (1.0%)
+
+    // Royalty variables
+    bool internal immutable IS_ERC2981; // whether token contract supports ERC-2981
+    uint256 internal globalRoyaltyFee; // global royalty fee multiplier if ERC2981 is not used
+    address internal globalRoyaltyRecipient; // global royalty fee recipient if ERC2981 is not used
 
     // Mapping variables
     mapping(uint256 => uint256) internal totalSupplies; // Liquidity pool token supply per Token id
     mapping(uint256 => uint256) internal currencyReserves; // currency Token reserve per Token id
+    mapping(address => uint256) internal royaltiesNumerator; // Mapping tracking how much royalties can be claimed per address
+
+    uint256 internal constant ROYALTIES_DENOMINATOR = 10000;
+    uint256 internal constant MAX_ROYALTY = ROYALTIES_DENOMINATOR / 4;
 
     //
     // Constructor
@@ -42,23 +61,47 @@ contract WhiskySwapExchange is ReentrancyGuard, ERC1155MintBurn, IWhiskySwapExch
 
     /**
      * @notice Create instance of exchange contract with respective token and currency token
+     * @dev If token supports ERC-2981, then royalty fee will be queried per token on the
+     * token contract. Else royalty fee will need to be manually set by admin.
      * @param _tokenAddr     The address of the ERC-1155 Token
-     * @param _currencyAddr  The address of the ERC-1155 currency Token
-     * @param _currencyID    The ID of the ERC-1155 currency Token
+     * @param _currencyAddr  The address of the ERC-20 currency Token
+     * @param _currencyAddr  Address of the admin, which should be the same as the factory owner
+     * @param _lpFee    Fee that will go to LPs.
+     * Number between 0 and 1000, where 10 is 1.0% and 100 is 10%.
      */
-    constructor(address _tokenAddr, address _currencyAddr, uint256 _currencyID) {
+    constructor(address _tokenAddr, address _currencyAddr, uint256 _lpFee) DelegatedOwnable(msg.sender) {
         require(
-            address(_tokenAddr) != address(0) && _currencyAddr != address(0),
-            "NE#01" // WhiskySwapExchange#constructor:INVALID_INPUT
+            _tokenAddr != address(0) && _currencyAddr != address(0),
+            "NE20#1" // WhiskySwapExchange#constructor:INVALID_INPUT
         );
+        require(
+            _lpFee <= 1000,
+            "NE20#2" // WhiskySwapExchange#constructor:INVALID_LP_FEE
+        );
+
         factory = msg.sender;
         token = IERC1155(_tokenAddr);
-        currency = IERC1155(_currencyAddr);
-        currencyID = _currencyID;
+        currency = _currencyAddr;
+        FEE_MULTIPLIER = 1000 - _lpFee;
 
-        // If token and currency are the same contract,
-        // need to prevent currency/currency pool to be created.
-        currencyPoolBanned = _currencyAddr == _tokenAddr ? true : false;
+        // If global royalty, lets check for ERC-2981 support
+        try IERC1155(_tokenAddr).supportsInterface(type(IERC2981).interfaceId) returns (bool supported) {
+            IS_ERC2981 = supported;
+        } catch {} // solhint-disable-line no-empty-blocks
+    }
+
+    //
+    // Metadata Functions
+    //
+
+    /**
+     * @notice A distinct Uniform Resource Identifier (URI) for a given token.
+     * @dev URIs are defined in RFC 3986.
+     * The URI MUST point to a JSON file that conforms to the "ERC-1155 Metadata URI JSON Schema".
+     * @return URI string
+     */
+    function uri(uint256 _id) external view override returns (string memory) {
+        return IDelegatedERC1155Metadata(factory).metadataProvider().uri(_id);
     }
 
     //
@@ -67,16 +110,6 @@ contract WhiskySwapExchange is ReentrancyGuard, ERC1155MintBurn, IWhiskySwapExch
 
     /**
      * @notice Convert currency tokens to Tokens _id and transfers Tokens to recipient.
-     * @dev User specifies MAXIMUM inputs (_maxCurrency) and EXACT outputs.
-     * @dev Assumes that all trades will be successful, or revert the whole tx
-     * @dev Exceeding currency tokens sent will be refunded to recipient
-     * @dev Sorting IDs is mandatory for efficient way of preventing duplicated IDs (which would lead to exploit)
-     * @param _tokenIds             Array of Tokens ID that are bought
-     * @param _tokensBoughtAmounts  Amount of Tokens id bought for each corresponding Token id in _tokenIds
-     * @param _maxCurrency          Total maximum amount of currency tokens to spend for all Token ids
-     * @param _deadline             Timestamp after which this transaction will be reverted
-     * @param _recipient            The address that receives output Tokens and refund
-     * @return currencySold How much currency was actually sold.
      */
     function _currencyToToken(
         uint256[] memory _tokenIds,
@@ -87,7 +120,7 @@ contract WhiskySwapExchange is ReentrancyGuard, ERC1155MintBurn, IWhiskySwapExch
     ) internal nonReentrant returns (uint256[] memory currencySold) {
         // Input validation
         // solhint-disable-next-line not-rely-on-time
-        require(_deadline >= block.timestamp, "NE#02"); // WhiskySwapExchange#_currencyToToken: DEADLINE_EXCEEDED
+        require(_deadline >= block.timestamp, "NE20#3"); // WhiskySwapExchange#_currencyToToken: DEADLINE_EXCEEDED
 
         // Number of Token IDs to deposit
         uint256 nTokens = _tokenIds.length;
@@ -95,12 +128,11 @@ contract WhiskySwapExchange is ReentrancyGuard, ERC1155MintBurn, IWhiskySwapExch
 
         // Initialize variables
         currencySold = new uint256[](nTokens); // Amount of currency tokens sold per ID
-        uint256[] memory tokenReserves = new uint256[](nTokens); // Amount of tokens in reserve for each Token id
 
         // Get token reserves
-        tokenReserves = _getTokenReserves(_tokenIds);
+        uint256[] memory tokenReserves = _getTokenReserves(_tokenIds);
 
-        // Assumes he currency Tokens are already received by contract, but not
+        // Assumes the currency Tokens are already received by contract, but not
         // the Tokens Ids
 
         // Remove liquidity for each Token ID in _tokenIds
@@ -110,7 +142,7 @@ contract WhiskySwapExchange is ReentrancyGuard, ERC1155MintBurn, IWhiskySwapExch
             uint256 amountBought = _tokensBoughtAmounts[i];
             uint256 tokenReserve = tokenReserves[i];
 
-            require(amountBought > 0, "NE#03"); // WhiskySwapExchange#_currencyToToken: NULL_TOKENS_BOUGHT
+            require(amountBought > 0, "NE20#4"); // WhiskySwapExchange#_currencyToToken: NULL_TOKENS_BOUGHT
 
             // Load currency token and Token _id reserves
             uint256 currencyReserve = currencyReserves[idBought];
@@ -120,24 +152,32 @@ contract WhiskySwapExchange is ReentrancyGuard, ERC1155MintBurn, IWhiskySwapExch
             // no adjustment to the inputs is needed
             uint256 currencyAmount = getBuyPrice(amountBought, currencyReserve, tokenReserve);
 
+            // If royalty, increase amount buyer will need to pay after LP fees were calculated
+            // Note: Royalty will be a bit higher since LF fees are added first
+            (address royaltyRecipient, uint256 royaltyAmount) = getRoyaltyInfo(idBought, currencyAmount);
+            if (royaltyAmount > 0) {
+                royaltiesNumerator[royaltyRecipient] += royaltyAmount * ROYALTIES_DENOMINATOR;
+            }
+
             // Calculate currency token amount to refund (if any) where whatever is not used will be returned
             // Will throw if total cost exceeds _maxCurrency
-            totalRefundCurrency -= currencyAmount;
+            totalRefundCurrency -= currencyAmount + royaltyAmount;
 
             // Append Token id, Token id amount and currency token amount to tracking arrays
-            currencySold[i] = currencyAmount;
+            currencySold[i] = currencyAmount + royaltyAmount;
 
-            // Update individual currency reseve amount
+            // Update individual currency reseve amount (royalty is not added to liquidity)
             currencyReserves[idBought] = currencyReserve + currencyAmount;
-        }
-
-        // Refund currency token if any
-        if (totalRefundCurrency > 0) {
-            currency.safeTransferFrom(address(this), _recipient, currencyID, totalRefundCurrency, "");
         }
 
         // Send Tokens all tokens purchased
         token.safeBatchTransferFrom(address(this), _recipient, _tokenIds, _tokensBoughtAmounts, "");
+
+        // Refund currency token if any
+        if (totalRefundCurrency > 0) {
+            TransferHelper.safeTransfer(currency, _recipient, totalRefundCurrency);
+        }
+
         return currencySold;
     }
 
@@ -150,12 +190,12 @@ contract WhiskySwapExchange is ReentrancyGuard, ERC1155MintBurn, IWhiskySwapExch
      */
     function getBuyPrice(uint256 _assetBoughtAmount, uint256 _assetSoldReserve, uint256 _assetBoughtReserve)
         public
-        pure
+        view
         override
         returns (uint256 price)
     {
         // Reserves must not be empty
-        require(_assetSoldReserve > 0 && _assetBoughtReserve > 0, "NE#04"); // WhiskySwapExchange#getBuyPrice: EMPTY_RESERVE
+        require(_assetSoldReserve > 0 && _assetBoughtReserve > 0, "NE20#5"); // WhiskySwapExchange#getBuyPrice: EMPTY_RESERVE
 
         // Calculate price with fee
         uint256 numerator = _assetSoldReserve * _assetBoughtAmount * 1000;
@@ -165,15 +205,36 @@ contract WhiskySwapExchange is ReentrancyGuard, ERC1155MintBurn, IWhiskySwapExch
     }
 
     /**
+     * @dev Pricing function used for converting Tokens to currency token (including royalty fee)
+     * @param _tokenId            Id ot token being sold
+     * @param _assetBoughtAmount  Amount of Tokens being bought.
+     * @param _assetSoldReserve   Amount of currency tokens in exchange reserves.
+     * @param _assetBoughtReserve Amount of Tokens (output type) in exchange reserves.
+     * @return price Amount of currency tokens to send to WhiskySwap.
+     */
+    function getBuyPriceWithRoyalty(
+        uint256 _tokenId,
+        uint256 _assetBoughtAmount,
+        uint256 _assetSoldReserve,
+        uint256 _assetBoughtReserve
+    ) public view override returns (uint256 price) {
+        uint256 cost = getBuyPrice(_assetBoughtAmount, _assetSoldReserve, _assetBoughtReserve);
+        (, uint256 royaltyAmount) = getRoyaltyInfo(_tokenId, cost);
+        return cost + royaltyAmount;
+    }
+
+    /**
      * @notice Convert Tokens _id to currency tokens and transfers Tokens to recipient.
      * @dev User specifies EXACT Tokens _id sold and MINIMUM currency tokens received.
      * @dev Assumes that all trades will be valid, or the whole tx will fail
      * @dev Sorting _tokenIds is mandatory for efficient way of preventing duplicated IDs (which would lead to errors)
-     * @param _tokenIds          Array of Token IDs that are sold
-     * @param _tokensSoldAmounts Array of Amount of Tokens sold for each id in _tokenIds.
-     * @param _minCurrency       Minimum amount of currency tokens to receive
-     * @param _deadline          Timestamp after which this transaction will be reverted
-     * @param _recipient         The address that receives output currency tokens.
+     * @param _tokenIds           Array of Token IDs that are sold
+     * @param _tokensSoldAmounts  Array of Amount of Tokens sold for each id in _tokenIds.
+     * @param _minCurrency        Minimum amount of currency tokens to receive
+     * @param _deadline           Timestamp after which this transaction will be reverted
+     * @param _recipient          The address that receives output currency tokens.
+     * @param _extraFeeRecipients  Array of addresses that will receive extra fee
+     * @param _extraFeeAmounts     Array of amounts of currency that will be sent as extra fee
      * @return currencyBought How much currency was actually purchased.
      */
     function _tokenToCurrency(
@@ -181,22 +242,23 @@ contract WhiskySwapExchange is ReentrancyGuard, ERC1155MintBurn, IWhiskySwapExch
         uint256[] memory _tokensSoldAmounts,
         uint256 _minCurrency,
         uint256 _deadline,
-        address _recipient
+        address _recipient,
+        address[] memory _extraFeeRecipients,
+        uint256[] memory _extraFeeAmounts
     ) internal nonReentrant returns (uint256[] memory currencyBought) {
         // Number of Token IDs to deposit
         uint256 nTokens = _tokenIds.length;
 
         // Input validation
         // solhint-disable-next-line not-rely-on-time
-        require(_deadline >= block.timestamp, "NE#05"); // WhiskySwapExchange#_tokenToCurrency: DEADLINE_EXCEEDED
+        require(_deadline >= block.timestamp, "NE20#6"); // WhiskySwapExchange#_tokenToCurrency: DEADLINE_EXCEEDED
 
         // Initialize variables
         uint256 totalCurrency = 0; // Total amount of currency tokens to transfer
         currencyBought = new uint256[](nTokens);
-        uint256[] memory tokenReserves = new uint256[](nTokens);
 
         // Get token reserves
-        tokenReserves = _getTokenReserves(_tokenIds);
+        uint256[] memory tokenReserves = _getTokenReserves(_tokenIds);
 
         // Assumes the Tokens ids are already received by contract, but not
         // the Tokens Ids. Will return cards not sold if invalid price.
@@ -209,7 +271,7 @@ contract WhiskySwapExchange is ReentrancyGuard, ERC1155MintBurn, IWhiskySwapExch
             uint256 tokenReserve = tokenReserves[i];
 
             // If 0 tokens send for this ID, revert
-            require(amountSold > 0, "NE#06"); // WhiskySwapExchange#_tokenToCurrency: NULL_TOKENS_SOLD
+            require(amountSold > 0, "NE20#7"); // WhiskySwapExchange#_tokenToCurrency: NULL_TOKENS_SOLD
 
             // Load currency token and Token _id reserves
             uint256 currencyReserve = currencyReserves[idSold];
@@ -219,22 +281,36 @@ contract WhiskySwapExchange is ReentrancyGuard, ERC1155MintBurn, IWhiskySwapExch
             // Don't need to add it for currencyReserve because the amount is added after this calculation
             uint256 currencyAmount = getSellPrice(amountSold, tokenReserve - amountSold, currencyReserve);
 
-            // Increase cost of transaction
-            totalCurrency += currencyAmount;
+            // If royalty, substract amount seller will receive after LP fees were calculated
+            // Note: Royalty will be a bit lower since LF fees are substracted first
+            (address royaltyRecipient, uint256 royaltyAmount) = getRoyaltyInfo(idSold, currencyAmount);
+            if (royaltyAmount > 0) {
+                royaltiesNumerator[royaltyRecipient] += royaltyAmount * ROYALTIES_DENOMINATOR;
+            }
+
+            // Increase total amount of currency to receive (minus royalty to pay)
+            totalCurrency += currencyAmount - royaltyAmount;
 
             // Update individual currency reseve amount
             currencyReserves[idSold] = currencyReserve - currencyAmount;
 
             // Append Token id, Token id amount and currency token amount to tracking arrays
-            currencyBought[i] = currencyAmount;
+            currencyBought[i] = currencyAmount - royaltyAmount;
+        }
+
+        // Set the extra fees aside to recipients after sale
+        for (uint256 i = 0; i < _extraFeeAmounts.length; i++) {
+            if (_extraFeeAmounts[i] > 0) {
+                totalCurrency -= _extraFeeAmounts[i];
+                royaltiesNumerator[_extraFeeRecipients[i]] += _extraFeeAmounts[i] * ROYALTIES_DENOMINATOR;
+            }
         }
 
         // If minCurrency is not met
-        require(totalCurrency >= _minCurrency, "NE#07"); // WhiskySwapExchange#_tokenToCurrency: INSUFFICIENT_CURRENCY_AMOUNT
+        require(totalCurrency >= _minCurrency, "NE20#8"); // WhiskySwapExchange#_tokenToCurrency: INSUFFICIENT_CURRENCY_AMOUNT
 
         // Transfer currency here
-        currency.safeTransferFrom(address(this), _recipient, currencyID, totalCurrency, "");
-
+        TransferHelper.safeTransfer(currency, _recipient, totalCurrency);
         return currencyBought;
     }
 
@@ -247,18 +323,37 @@ contract WhiskySwapExchange is ReentrancyGuard, ERC1155MintBurn, IWhiskySwapExch
      */
     function getSellPrice(uint256 _assetSoldAmount, uint256 _assetSoldReserve, uint256 _assetBoughtReserve)
         public
-        pure
+        view
         override
         returns (uint256 price)
     {
         //Reserves must not be empty
-        require(_assetSoldReserve > 0 && _assetBoughtReserve > 0, "NE#08"); // WhiskySwapExchange#getSellPrice: EMPTY_RESERVE
+        require(_assetSoldReserve > 0 && _assetBoughtReserve > 0, "NE20#9"); // WhiskySwapExchange#getSellPrice: EMPTY_RESERVE
 
-        // Calculate amount to receive (with fee)
+        // Calculate amount to receive (with fee) before royalty
         uint256 _assetSoldAmount_withFee = _assetSoldAmount * FEE_MULTIPLIER;
         uint256 numerator = _assetSoldAmount_withFee * _assetBoughtReserve;
         uint256 denominator = (_assetSoldReserve * 1000) + _assetSoldAmount_withFee;
         return numerator / denominator; //Rounding errors will favor WhiskySwap, so nothing to do
+    }
+
+    /**
+     * @dev Pricing function used for converting Tokens to currency token (including royalty fee)
+     * @param _tokenId            Id ot token being sold
+     * @param _assetSoldAmount    Amount of Tokens being sold.
+     * @param _assetSoldReserve   Amount of Tokens in exchange reserves.
+     * @param _assetBoughtReserve Amount of currency tokens in exchange reserves.
+     * @return price Amount of currency tokens to receive from WhiskySwap.
+     */
+    function getSellPriceWithRoyalty(
+        uint256 _tokenId,
+        uint256 _assetSoldAmount,
+        uint256 _assetSoldReserve,
+        uint256 _assetBoughtReserve
+    ) public view override returns (uint256 price) {
+        uint256 sellAmount = getSellPrice(_assetSoldAmount, _assetSoldReserve, _assetBoughtReserve);
+        (, uint256 royaltyAmount) = getRoyaltyInfo(_tokenId, sellAmount);
+        return sellAmount - royaltyAmount;
     }
 
     //
@@ -286,7 +381,7 @@ contract WhiskySwapExchange is ReentrancyGuard, ERC1155MintBurn, IWhiskySwapExch
     ) internal nonReentrant {
         // Requirements
         // solhint-disable-next-line not-rely-on-time
-        require(_deadline >= block.timestamp, "NE#09"); // WhiskySwapExchange#_addLiquidity: DEADLINE_EXCEEDED
+        require(_deadline >= block.timestamp, "NE20#10"); // WhiskySwapExchange#_addLiquidity: DEADLINE_EXCEEDED
 
         // Initialize variables
         uint256 nTokens = _tokenIds.length; // Number of Token IDs to deposit
@@ -295,10 +390,9 @@ contract WhiskySwapExchange is ReentrancyGuard, ERC1155MintBurn, IWhiskySwapExch
         // Initialize arrays
         uint256[] memory liquiditiesToMint = new uint256[](nTokens);
         uint256[] memory currencyAmounts = new uint256[](nTokens);
-        uint256[] memory tokenReserves = new uint256[](nTokens);
 
         // Get token reserves
-        tokenReserves = _getTokenReserves(_tokenIds);
+        uint256[] memory tokenReserves = _getTokenReserves(_tokenIds);
 
         // Assumes tokens _ids are deposited already, but not currency tokens
         // as this is calculated and executed below.
@@ -310,14 +404,8 @@ contract WhiskySwapExchange is ReentrancyGuard, ERC1155MintBurn, IWhiskySwapExch
             uint256 amount = _tokenAmounts[i];
 
             // Check if input values are acceptable
-            require(_maxCurrency[i] > 0, "NE#10"); // WhiskySwapExchange#_addLiquidity: NULL_MAX_CURRENCY
-            require(amount > 0, "NE#11"); // WhiskySwapExchange#_addLiquidity: NULL_TOKENS_AMOUNT
-
-            // If the token contract and currency contract are the same, prevent the creation
-            // of a currency pool.
-            if (currencyPoolBanned) {
-                require(tokenId != currencyID, "NE#12"); // WhiskySwapExchange#_addLiquidity: CURRENCY_POOL_FORBIDDEN
-            }
+            require(_maxCurrency[i] > 0, "NE20#11"); // WhiskySwapExchange#_addLiquidity: NULL_MAX_CURRENCY
+            require(amount > 0, "NE20#12"); // WhiskySwapExchange#_addLiquidity: NULL_TOKENS_AMOUNT
 
             // Current total liquidity calculated in currency token
             uint256 totalLiquidity = totalSupplies[tokenId];
@@ -341,10 +429,7 @@ contract WhiskySwapExchange is ReentrancyGuard, ERC1155MintBurn, IWhiskySwapExch
                  * Adding 1 if rounding errors so to not favor users incorrectly
                  */
                 (uint256 currencyAmount, bool rounded) = divRound(amount * currencyReserve, tokenReserve - amount);
-                require(
-                    _maxCurrency[i] >= currencyAmount,
-                    "NE#13" // WhiskySwapExchange#_addLiquidity: MAX_CURRENCY_AMOUNT_EXCEEDED
-                );
+                require(_maxCurrency[i] >= currencyAmount, "NE20#13"); // WhiskySwapExchange#_addLiquidity: MAX_CURRENCY_AMOUNT_EXCEEDED
 
                 // Update currency reserve size for Token id before transfer
                 currencyReserves[tokenId] = currencyReserve + currencyAmount;
@@ -364,7 +449,7 @@ contract WhiskySwapExchange is ReentrancyGuard, ERC1155MintBurn, IWhiskySwapExch
                 uint256 maxCurrency = _maxCurrency[i];
 
                 // Otherwise rounding error could end up being significant on second deposit
-                require(maxCurrency >= 1000000000, "NE#14"); // WhiskySwapExchange#_addLiquidity: INVALID_CURRENCY_AMOUNT
+                require(maxCurrency >= 1000, "NE20#14"); // WhiskySwapExchange#_addLiquidity: INVALID_CURRENCY_AMOUNT
 
                 // Update currency  reserve size for Token id before transfer
                 currencyReserves[tokenId] = maxCurrency;
@@ -382,11 +467,11 @@ contract WhiskySwapExchange is ReentrancyGuard, ERC1155MintBurn, IWhiskySwapExch
             }
         }
 
+        // Transfer all currency to this contract
+        TransferHelper.safeTransferFrom(currency, _provider, address(this), totalCurrency);
+
         // Mint liquidity pool tokens
         _batchMint(_provider, _tokenIds, liquiditiesToMint, "");
-
-        // Transfer all currency to this contract
-        currency.safeTransferFrom(_provider, address(this), currencyID, totalCurrency, abi.encode(DEPOSIT_SIG));
 
         // Emit event
         emit LiquidityAdded(_provider, _tokenIds, _tokenAmounts, currencyAmounts);
@@ -404,18 +489,21 @@ contract WhiskySwapExchange is ReentrancyGuard, ERC1155MintBurn, IWhiskySwapExch
      * @return tokenAmount    Token corresponding to pool amount plus rounded currency.
      */
     function _toRoundedLiquidity(
+        uint256 _tokenId,
         uint256 _amountPool,
         uint256 _tokenReserve,
         uint256 _currencyReserve,
         uint256 _totalLiquidity
     )
         internal
-        pure
+        view
         returns (
             uint256 currencyAmount,
             uint256 tokenAmount,
             uint256 soldTokenNumerator,
-            uint256 boughtCurrencyNumerator
+            uint256 boughtCurrencyNumerator,
+            address royaltyRecipient,
+            uint256 royaltyNumerator
         )
     {
         uint256 currencyNumerator = _amountPool * _currencyReserve;
@@ -423,6 +511,7 @@ contract WhiskySwapExchange is ReentrancyGuard, ERC1155MintBurn, IWhiskySwapExch
 
         // Convert all tokenProduct rest to currency
         soldTokenNumerator = tokenNumerator % _totalLiquidity;
+
         if (soldTokenNumerator != 0) {
             // The trade happens "after" funds are out of the pool
             // so we need to remove these funds before computing the rate
@@ -434,7 +523,15 @@ contract WhiskySwapExchange is ReentrancyGuard, ERC1155MintBurn, IWhiskySwapExch
             // this step is important to avoid an error withdrawing all left liquidity
             if (virtualCurrencyReserve != 0 && virtualTokenReserve != 0) {
                 boughtCurrencyNumerator = getSellPrice(soldTokenNumerator, virtualTokenReserve, virtualCurrencyReserve);
+
+                // Discount royalty currency
+                (royaltyRecipient, royaltyNumerator) = getRoyaltyInfo(_tokenId, boughtCurrencyNumerator);
+                boughtCurrencyNumerator -= royaltyNumerator;
+
                 currencyNumerator += boughtCurrencyNumerator;
+
+                // Add royalty numerator (needs to be converted to ROYALTIES_DENOMINATOR)
+                royaltyNumerator = royaltyNumerator * ROYALTIES_DENOMINATOR / _totalLiquidity;
             }
         }
 
@@ -463,12 +560,11 @@ contract WhiskySwapExchange is ReentrancyGuard, ERC1155MintBurn, IWhiskySwapExch
     ) internal nonReentrant {
         // Input validation
         // solhint-disable-next-line not-rely-on-time
-        require(_deadline > block.timestamp, "NE#15"); // WhiskySwapExchange#_removeLiquidity: DEADLINE_EXCEEDED
+        require(_deadline > block.timestamp, "NE20#15"); // WhiskySwapExchange#_removeLiquidity: DEADLINE_EXCEEDED
 
         // Initialize variables
         uint256 nTokens = _tokenIds.length; // Number of Token IDs to deposit
         uint256 totalCurrency = 0; // Total amount of currency  to transfer
-
         uint256[] memory tokenAmounts = new uint256[](nTokens); // Amount of Tokens to transfer for each id
 
         // Structs contain most information for the event
@@ -480,7 +576,7 @@ contract WhiskySwapExchange is ReentrancyGuard, ERC1155MintBurn, IWhiskySwapExch
         uint256[] memory tokenReserves = _getTokenReserves(_tokenIds);
 
         // Assumes NIFTY liquidity tokens are already received by contract, but not
-        // the currency  nor the Tokens Ids
+        // the currency nor the Tokens Ids
 
         // Remove liquidity for each Token ID in _tokenIds
         for (uint256 i = 0; i < nTokens; i++) {
@@ -490,7 +586,7 @@ contract WhiskySwapExchange is ReentrancyGuard, ERC1155MintBurn, IWhiskySwapExch
 
             // Load total liquidity pool token supply for Token _id
             uint256 totalLiquidity = totalSupplies[id];
-            require(totalLiquidity > 0, "NE#16"); // WhiskySwapExchange#_removeLiquidity: NULL_TOTAL_LIQUIDITY
+            require(totalLiquidity > 0, "NE20#16"); // WhiskySwapExchange#_removeLiquidity: NULL_TOTAL_LIQUIDITY
 
             // Load currency and Token reserve's supply of Token id
             uint256 currencyReserve = currencyReserves[id];
@@ -503,9 +599,20 @@ contract WhiskySwapExchange is ReentrancyGuard, ERC1155MintBurn, IWhiskySwapExch
                 uint256 tokenReserve = tokenReserves[i];
                 uint256 soldTokenNumerator;
                 uint256 boughtCurrencyNumerator;
+                address royaltyRecipient;
+                uint256 royaltyNumerator;
 
-                (currencyAmount, tokenAmount, soldTokenNumerator, boughtCurrencyNumerator) =
-                    _toRoundedLiquidity(amountPool, tokenReserve, currencyReserve, totalLiquidity);
+                (
+                    currencyAmount,
+                    tokenAmount,
+                    soldTokenNumerator,
+                    boughtCurrencyNumerator,
+                    royaltyRecipient,
+                    royaltyNumerator
+                ) = _toRoundedLiquidity(id, amountPool, tokenReserve, currencyReserve, totalLiquidity);
+
+                // Add royalties
+                royaltiesNumerator[royaltyRecipient] += royaltyNumerator;
 
                 // Add trade info to event
                 eventObjs[i].soldTokenNumerator = soldTokenNumerator;
@@ -514,11 +621,8 @@ contract WhiskySwapExchange is ReentrancyGuard, ERC1155MintBurn, IWhiskySwapExch
             }
 
             // Verify if amounts to withdraw respect minimums specified
-            require(
-                currencyAmount >= _minCurrency[i],
-                "NE#17" // WhiskySwapExchange#_removeLiquidity: INSUFFICIENT_CURRENCY_AMOUNT
-            );
-            require(tokenAmount >= _minTokens[i], "NE#18"); // WhiskySwapExchange#_removeLiquidity: INSUFFICIENT_TOKENS
+            require(currencyAmount >= _minCurrency[i], "NE20#17"); // WhiskySwapExchange#_removeLiquidity: INSUFFICIENT_CURRENCY_AMOUNT
+            require(tokenAmount >= _minTokens[i], "NE20#18"); // WhiskySwapExchange#_removeLiquidity: INSUFFICIENT_TOKENS
 
             // Update total liquidity pool token supply of Token _id
             totalSupplies[id] = totalLiquidity - amountPool;
@@ -536,8 +640,8 @@ contract WhiskySwapExchange is ReentrancyGuard, ERC1155MintBurn, IWhiskySwapExch
         // Burn liquidity pool tokens for offchain supplies
         _batchBurn(address(this), _tokenIds, _poolTokenAmounts);
 
-        // Transfer total currency  and all Tokens ids
-        currency.safeTransferFrom(address(this), _provider, currencyID, totalCurrency, "");
+        // Transfer total currency and all Tokens ids
+        TransferHelper.safeTransfer(currency, _provider, totalCurrency);
         token.safeBatchTransferFrom(address(this), _provider, _tokenIds, tokenAmounts, "");
 
         // Emit event
@@ -545,20 +649,15 @@ contract WhiskySwapExchange is ReentrancyGuard, ERC1155MintBurn, IWhiskySwapExch
     }
 
     //
-    // Receiver Method Handlers
+    // Receive Method Handlers
     //
 
     // Method signatures for onReceive control logic
 
     // bytes4(keccak256(
-    //   "_currencyToToken(uint256[],uint256[],uint256,uint256,address)"
+    //   "_tokenToCurrency(uint256[],uint256[],uint256,uint256,address,address[],uint256[])"
     // ));
-    bytes4 internal constant BUYTOKENS_SIG = 0xb2d81047;
-
-    // bytes4(keccak256(
-    //   "_tokenToCurrency(uint256[],uint256[],uint256,uint256,address)"
-    // ));
-    bytes4 internal constant SELLTOKENS_SIG = 0xdb08ec97;
+    bytes4 internal constant SELLTOKENS_SIG = 0xade79c7a;
 
     //  bytes4(keccak256(
     //   "_addLiquidity(address,uint256[],uint256[],uint256[],uint256)"
@@ -574,6 +673,65 @@ contract WhiskySwapExchange is ReentrancyGuard, ERC1155MintBurn, IWhiskySwapExch
     //   "DepositTokens()"
     // ));
     bytes4 internal constant DEPOSIT_SIG = 0xc8c323f9;
+
+    //
+    // Buying Tokens
+    //
+
+    /**
+     * @notice Convert currency tokens to Tokens _id and transfers Tokens to recipient.
+     * @dev User specifies MAXIMUM inputs (_maxCurrency) and EXACT outputs.
+     * @dev Assumes that all trades will be successful, or revert the whole tx
+     * @dev Exceeding currency tokens sent will be refunded to recipient
+     * @dev Sorting IDs is mandatory for efficient way of preventing duplicated IDs (which would lead to exploit)
+     * @param _tokenIds            Array of Tokens ID that are bought
+     * @param _tokensBoughtAmounts Amount of Tokens id bought for each corresponding Token id in _tokenIds
+     * @param _maxCurrency         Total maximum amount of currency tokens to spend for all Token ids
+     * @param _deadline            Timestamp after which this transaction will be reverted
+     * @param _recipient           The address that receives output Tokens and refund
+     * @param _extraFeeRecipients  Array of addresses that will receive extra fee
+     * @param _extraFeeAmounts     Array of amounts of currency that will be sent as extra fee
+     * @return currencySold How much currency was actually sold.
+     */
+    function buyTokens(
+        uint256[] memory _tokenIds,
+        uint256[] memory _tokensBoughtAmounts,
+        uint256 _maxCurrency,
+        uint256 _deadline,
+        address _recipient,
+        address[] memory _extraFeeRecipients,
+        uint256[] memory _extraFeeAmounts
+    ) external override returns (uint256[] memory) {
+        // solhint-disable-next-line not-rely-on-time
+        require(_deadline >= block.timestamp, "NE20#19"); // WhiskySwapExchange#buyTokens: DEADLINE_EXCEEDED
+        require(_tokenIds.length > 0, "NE20#20"); // WhiskySwapExchange#buyTokens: INVALID_CURRENCY_IDS_AMOUNT
+
+        // Transfer the tokens for purchase
+        TransferHelper.safeTransferFrom(currency, msg.sender, address(this), _maxCurrency);
+
+        address recipient = _recipient == address(0x0) ? msg.sender : _recipient;
+
+        // Set the extra fee aside to recipients ahead of purchase, if any.
+        uint256 maxCurrency = _maxCurrency;
+        uint256 nExtraFees = _extraFeeRecipients.length;
+        require(nExtraFees == _extraFeeAmounts.length, "NE20#21"); // WhiskySwapExchange#buyTokens: EXTRA_FEES_ARRAYS_ARE_NOT_SAME_LENGTH
+
+        for (uint256 i = 0; i < nExtraFees; i++) {
+            if (_extraFeeAmounts[i] > 0) {
+                maxCurrency -= _extraFeeAmounts[i];
+                royaltiesNumerator[_extraFeeRecipients[i]] += _extraFeeAmounts[i] * ROYALTIES_DENOMINATOR;
+            }
+        }
+
+        // Execute trade and retrieve amount of currency spent
+        uint256[] memory currencySold =
+            _currencyToToken(_tokenIds, _tokensBoughtAmounts, maxCurrency, _deadline, recipient);
+        emit TokensPurchase(
+            msg.sender, recipient, _tokenIds, _tokensBoughtAmounts, currencySold, _extraFeeRecipients, _extraFeeAmounts
+        );
+
+        return currencySold;
+    }
 
     /**
      * @notice Handle which method is being called on transfer
@@ -602,52 +760,34 @@ contract WhiskySwapExchange is ReentrancyGuard, ERC1155MintBurn, IWhiskySwapExch
         bytes4 functionSignature = abi.decode(_data, (bytes4));
 
         //
-        // Buying Tokens
+        // Selling Tokens
         //
-        if (functionSignature == BUYTOKENS_SIG) {
-            // Tokens received need to be currency contract
-            require(
-                msg.sender == address(currency),
-                "NE#19" // WhiskySwapExchange#onERC1155BatchReceived: INVALID_CURRENCY_TRANSFERRED
-            );
-            require(_ids.length == 1, "NE#20"); // WhiskySwapExchange#onERC1155BatchReceived: INVALID_CURRENCY_IDS_AMOUNT
-            require(_ids[0] == currencyID, "NE#21"); // WhiskySwapExchange#onERC1155BatchReceived: INVALID_CURRENCY_ID
-
-            // Decode BuyTokensObj from _data to call _currencyToToken()
-            BuyTokensObj memory obj;
-            (, obj) = abi.decode(_data, (bytes4, BuyTokensObj));
-            address recipient = obj.recipient == address(0x0) ? _from : obj.recipient;
-
-            // Execute trade and retrieve amount of currency spent
-            uint256[] memory currencySold =
-                _currencyToToken(obj.tokensBoughtIDs, obj.tokensBoughtAmounts, _amounts[0], obj.deadline, recipient);
-            emit TokensPurchase(_from, recipient, obj.tokensBoughtIDs, obj.tokensBoughtAmounts, currencySold);
-
-            //
-            // Selling Tokens
-            //
-        } else if (functionSignature == SELLTOKENS_SIG) {
+        if (functionSignature == SELLTOKENS_SIG) {
             // Tokens received need to be Token contract
-            require(
-                msg.sender == address(token),
-                "NE#22" // WhiskySwapExchange#onERC1155BatchReceived: INVALID_TOKENS_TRANSFERRED
-            );
+            require(msg.sender == address(token), "NE20#22"); // WhiskySwapExchange#onERC1155BatchReceived: INVALID_TOKENS_TRANSFERRED
 
             // Decode SellTokensObj from _data to call _tokenToCurrency()
             SellTokensObj memory obj;
             (, obj) = abi.decode(_data, (bytes4, SellTokensObj));
             address recipient = obj.recipient == address(0x0) ? _from : obj.recipient;
 
+            // Validate fee arrays
+            require(obj.extraFeeRecipients.length == obj.extraFeeAmounts.length, "NE20#23"); // WhiskySwapExchange#buyTokens: EXTRA_FEES_ARRAYS_ARE_NOT_SAME_LENGTH
+
             // Execute trade and retrieve amount of currency received
-            uint256[] memory currencyBought = _tokenToCurrency(_ids, _amounts, obj.minCurrency, obj.deadline, recipient);
-            emit CurrencyPurchase(_from, recipient, _ids, _amounts, currencyBought);
+            uint256[] memory currencyBought = _tokenToCurrency(
+                _ids, _amounts, obj.minCurrency, obj.deadline, recipient, obj.extraFeeRecipients, obj.extraFeeAmounts
+            );
+            emit CurrencyPurchase(
+                _from, recipient, _ids, _amounts, currencyBought, obj.extraFeeRecipients, obj.extraFeeAmounts
+            );
 
             //
             // Adding Liquidity Tokens
             //
         } else if (functionSignature == ADDLIQUIDITY_SIG) {
             // Only allow to receive ERC-1155 tokens from `token` contract
-            require(msg.sender == address(token), "NE#23"); // WhiskySwapExchange#onERC1155BatchReceived: INVALID_TOKEN_TRANSFERRED
+            require(msg.sender == address(token), "NE20#24"); // WhiskySwapExchange#onERC1155BatchReceived: INVALID_TOKEN_TRANSFERRED
 
             // Decode AddLiquidityObj from _data to call _addLiquidity()
             AddLiquidityObj memory obj;
@@ -659,10 +799,7 @@ contract WhiskySwapExchange is ReentrancyGuard, ERC1155MintBurn, IWhiskySwapExch
             //
         } else if (functionSignature == REMOVELIQUIDITY_SIG) {
             // Tokens received need to be NIFTY-1155 tokens
-            require(
-                msg.sender == address(this),
-                "NE#24" // WhiskySwapExchange#onERC1155BatchReceived: INVALID_NIFTY_TOKENS_TRANSFERRED
-            );
+            require(msg.sender == address(this), "NE20#25"); // WhiskySwapExchange#onERC1155BatchReceived: INVALID_NIFTY_TOKENS_TRANSFERRED
 
             // Decode RemoveLiquidityObj from _data to call _removeLiquidity()
             RemoveLiquidityObj memory obj;
@@ -675,13 +812,9 @@ contract WhiskySwapExchange is ReentrancyGuard, ERC1155MintBurn, IWhiskySwapExch
         } else if (functionSignature == DEPOSIT_SIG) {
             // Do nothing for when contract is self depositing
             // This could be use to deposit currency "by accident", which would be locked
-            require(
-                msg.sender == address(currency),
-                "NE#25" // WhiskySwapExchange#onERC1155BatchReceived: INVALID_TOKENS_DEPOSITED
-            );
-            require(_ids[0] == currencyID, "NE#26"); // WhiskySwapExchange#onERC1155BatchReceived: INVALID_CURRENCY_ID
+            require(msg.sender == address(currency), "NE20#26"); // WhiskySwapExchange#onERC1155BatchReceived: INVALID_TOKENS_DEPOSITED
         } else {
-            revert("WhiskySwapExchange#onERC1155BatchReceived: INVALID_METHOD");
+            revert("NE20#27"); // WhiskySwapExchange#onERC1155BatchReceived: INVALID_METHOD
         }
 
         return ERC1155_BATCH_RECEIVED_VALUE;
@@ -703,7 +836,7 @@ contract WhiskySwapExchange is ReentrancyGuard, ERC1155MintBurn, IWhiskySwapExch
 
         require(
             ERC1155_BATCH_RECEIVED_VALUE == onERC1155BatchReceived(_operator, _from, ids, amounts, _data),
-            "NE#27" // WhiskySwapExchange#onERC1155Received: INVALID_ONRECEIVED_MESSAGE
+            "NE20#28" // WhiskySwapExchange#onERC1155Received: INVALID_ONRECEIVED_MESSAGE
         );
 
         return ERC1155_RECEIVED_VALUE;
@@ -713,7 +846,63 @@ contract WhiskySwapExchange is ReentrancyGuard, ERC1155MintBurn, IWhiskySwapExch
      * @notice Prevents receiving Ether or calls to unsuported methods
      */
     fallback() external {
-        revert("NE#28"); // WhiskySwapExchange:UNSUPPORTED_METHOD
+        revert("NE20#29"); // WhiskySwapExchange:UNSUPPORTED_METHOD
+    }
+
+    //
+    // Royalty Functions
+    //
+
+    /**
+     * @notice Will set the royalties fees and recipient for contracts that don't support ERC-2981
+     * @param _fee       Fee pourcentage with a 10000 basis (e.g. 0.3% is 30 and 1% is 100 and 100% is 10000)
+     * @param _recipient Address where to send the fees to
+     */
+    function setRoyaltyInfo(uint256 _fee, address _recipient) public onlyOwner {
+        // Don't use IS_ERC2981 in case token contract was updated
+        bool isERC2981 = token.supportsInterface(type(IERC2981).interfaceId);
+        require(!isERC2981, "NE20#30"); // WhiskySwapExchange#setRoyaltyInfo: TOKEN SUPPORTS ERC-2981
+        require(_fee <= MAX_ROYALTY, "NE20#31"); // WhiskySwapExchange#setRoyaltyInfo: ROYALTY_FEE_IS_TOO_HIGH
+
+        globalRoyaltyFee = _fee;
+        globalRoyaltyRecipient = _recipient;
+        emit RoyaltyChanged(_recipient, _fee);
+    }
+
+    /**
+     * @notice Will send the royalties that _royaltyRecipient can claim, if any
+     * @dev Anyone can call this function such that payout could be distributed
+     * regularly instead of being claimed.
+     * @param _royaltyRecipient Address that is able to claim royalties
+     */
+    function sendRoyalties(address _royaltyRecipient) external override {
+        uint256 royaltyAmount = royaltiesNumerator[_royaltyRecipient] / ROYALTIES_DENOMINATOR;
+        royaltiesNumerator[_royaltyRecipient] = royaltiesNumerator[_royaltyRecipient] % ROYALTIES_DENOMINATOR;
+        TransferHelper.safeTransfer(currency, _royaltyRecipient, royaltyAmount);
+    }
+
+    /**
+     * @notice Will return how much of currency need to be paid for the royalty
+     * @notice Royalty is capped at 25% of the total amount of currency
+     * @param _tokenId ID of the erc-1155 token being traded
+     * @param _cost    Amount of currency sent/received for the trade
+     * @return recipient Address that will be able to claim the royalty
+     * @return royalty Amount of currency that will be sent to royalty recipient
+     */
+    function getRoyaltyInfo(uint256 _tokenId, uint256 _cost) public view returns (address recipient, uint256 royalty) {
+        if (IS_ERC2981) {
+            // Add a try/catch in-case token *removed* ERC-2981 support
+            try IERC2981(address(token)).royaltyInfo(_tokenId, _cost) returns (address _r, uint256 _c) {
+                // Cap to 25% of the total amount of currency
+                uint256 max = _cost * MAX_ROYALTY / ROYALTIES_DENOMINATOR;
+                return (_r, _c > max ? max : _c);
+            } catch {
+                // Default back to global setting if error occurs
+                return (globalRoyaltyRecipient, (_cost * globalRoyaltyFee) / ROYALTIES_DENOMINATOR);
+            }
+        } else {
+            return (globalRoyaltyRecipient, (_cost * globalRoyaltyFee) / ROYALTIES_DENOMINATOR);
+        }
     }
 
     //
@@ -752,7 +941,7 @@ contract WhiskySwapExchange is ReentrancyGuard, ERC1155MintBurn, IWhiskySwapExch
         for (uint256 i = 0; i < nIds; i++) {
             // Load Token id reserve
             uint256 tokenReserve = token.balanceOf(address(this), _ids[i]);
-            prices[i] = getBuyPrice(_tokensBought[i], currencyReserves[_ids[i]], tokenReserve);
+            prices[i] = getBuyPriceWithRoyalty(_ids[i], _tokensBought[i], currencyReserves[_ids[i]], tokenReserve);
         }
 
         // Return prices
@@ -777,7 +966,7 @@ contract WhiskySwapExchange is ReentrancyGuard, ERC1155MintBurn, IWhiskySwapExch
         for (uint256 i = 0; i < nIds; i++) {
             // Load Token id reserve
             uint256 tokenReserve = token.balanceOf(address(this), _ids[i]);
-            prices[i] = getSellPrice(_tokensSold[i], tokenReserve, currencyReserves[_ids[i]]);
+            prices[i] = getSellPriceWithRoyalty(_ids[i], _tokensSold[i], tokenReserve, currencyReserves[_ids[i]]);
         }
 
         // Return price
@@ -792,10 +981,17 @@ contract WhiskySwapExchange is ReentrancyGuard, ERC1155MintBurn, IWhiskySwapExch
     }
 
     /**
-     * @return Address of the currency contract that is used as currency and its corresponding id
+     * @return LP fee per 1000 units
      */
-    function getCurrencyInfo() external view override returns (address, uint256) {
-        return (address(currency), currencyID);
+    function getLPFee() external view override returns (uint256) {
+        return 1000 - FEE_MULTIPLIER;
+    }
+
+    /**
+     * @return Address of the currency contract that is used as currency
+     */
+    function getCurrencyInfo() external view override returns (address) {
+        return (address(currency));
     }
 
     /**
@@ -823,6 +1019,32 @@ contract WhiskySwapExchange is ReentrancyGuard, ERC1155MintBurn, IWhiskySwapExch
      */
     function getFactoryAddress() external view override returns (address) {
         return factory;
+    }
+
+    /**
+     * @return Global royalty fee % if not supporting ERC-2981
+     */
+    function getGlobalRoyaltyFee() external view override returns (uint256) {
+        return globalRoyaltyFee;
+    }
+
+    /**
+     * @return Global royalty recipient if token not supporting ERC-2981
+     */
+    function getGlobalRoyaltyRecipient() external view override returns (address) {
+        return globalRoyaltyRecipient;
+    }
+
+    /**
+     * @return Get amount of currency in royalty an address can claim
+     * @param _royaltyRecipient Address to check the claimable royalties
+     */
+    function getRoyalties(address _royaltyRecipient) external view override returns (uint256) {
+        return royaltiesNumerator[_royaltyRecipient] / ROYALTIES_DENOMINATOR;
+    }
+
+    function getRoyaltiesNumerator(address _royaltyRecipient) external view override returns (uint256) {
+        return royaltiesNumerator[_royaltyRecipient];
     }
 
     //
@@ -861,10 +1083,7 @@ contract WhiskySwapExchange is ReentrancyGuard, ERC1155MintBurn, IWhiskySwapExch
             thisAddressArray[0] = address(this);
 
             for (uint256 i = 1; i < nTokens; i++) {
-                require(
-                    _tokenIds[i - 1] < _tokenIds[i],
-                    "NE#29" // WhiskySwapExchange#_getTokenReserves: UNSORTED_OR_DUPLICATE_TOKEN_IDS
-                );
+                require(_tokenIds[i - 1] < _tokenIds[i], "NE20#32"); // WhiskySwapExchange#_getTokenReserves: UNSORTED_OR_DUPLICATE_TOKEN_IDS
                 thisAddressArray[i] = address(this);
             }
             return token.balanceOfBatch(thisAddressArray, _tokenIds);
@@ -879,7 +1098,8 @@ contract WhiskySwapExchange is ReentrancyGuard, ERC1155MintBurn, IWhiskySwapExch
      * @return Whether a given interface is supported
      */
     function supportsInterface(bytes4 interfaceID) public pure override returns (bool) {
-        return interfaceID == type(IERC165).interfaceId || interfaceID == type(IERC1155).interfaceId
-            || interfaceID == type(IERC1155TokenReceiver).interfaceId;
+        return interfaceID == type(IERC20).interfaceId || interfaceID == type(IERC165).interfaceId
+            || interfaceID == type(IERC1155).interfaceId || interfaceID == type(IERC1155TokenReceiver).interfaceId
+            || interfaceID == type(IERC1155Metadata).interfaceId;
     }
 }
