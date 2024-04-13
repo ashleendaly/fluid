@@ -20,7 +20,30 @@ contract CaskTokenContract is ERC1155, Ownable {
     
     function generatePortfolio(address owner) public view returns (uint256[] memory) {
         // get the number of cask token types that this person has
-        uint265 caskTokenTypeCount = 0;
+        uint265 caskTokenCount = 0;
+
+        for (uint256 i = 0; i < allCasksCreated.length; i++) {
+            if (balanceOf(owner, allCasksCreated[i]) > 0) {
+                caskTokenCount++;
+            }
+        }
+        
+        uint256[] memory heldCasks = new uint256[](caskTokenCount);
+
+        uint256 resultIndex = 0;
+        for (uint256 i = 0; i < allCasksCreated.length; i++) {
+            if (balanceOf(owner, allCasksCreated[i]) > 0) {
+                heldCasks[resultIndex] = allCasksCreated[i];
+                resultIndex++;
+            }
+        }
+
+        return heldCasks;
+        
+
+
+
+
          
     }
     
