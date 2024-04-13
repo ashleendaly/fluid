@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: UNLICENSED 
 pragma solidity ^0.8.4;
 
 import {IERC1155Metadata} from "./IERC1155Metadata.sol";
