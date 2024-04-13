@@ -1,16 +1,16 @@
 "use client";   // we connect the wallet in here because we want to fetch the client balance.
 
 import { useState, useEffect } from 'react';
-import { EthersContext } from "@/context/wallet";
+import { EthersContext } from "@/context/wallet"; // we connect the wallet in here because we want to fetch the client balance.
 import Link from "next/link";
 import { useContext } from "react";
 
 export default function Cask() {
     const [isBuyClicked, setIsBuyClicked] = useState(false);
     const [isSellClicked, setIsSellClicked] = useState(false);
-
-
-    // I have these states and I want to set them to certain values using a fetch call to the backend
+    const [walletBalance, setWalletBalance] = useState(0);
+    const [warning, setWarning] = useState('');
+    const [inputValue, setInputValue] = useState('');
     const [caskData, setCaskData] = useState({  
         caskID: 0,     
         tokensInLiquidityPool: 0,
@@ -19,20 +19,21 @@ export default function Cask() {
         amountOfTokensOwned: 0
     });
 
+
     
-    
-    
+    // Fetch initial cask and wallet data when component mounts
     useEffect(() => {
-        fetchCaskData(); // Fetch data when component mounts
+        fetchCaskData(); 
         fetchWalletBalance();
     }, []);
 
     const fetchWalletBalance = async () => {
-
+        // TODO: make a call to wallet to fetch walletBlance.
+        setWalletBalance(walletBalance);
     }
 
     const fetchCaskData = async () => {
-            // make a call to fetch these data from the backend and get a [reponse] containing a list of the states
+        // TODO: make a call to fetch these data from the backend and get a [reponse] containing a list of the states
         setCaskData({
             caskID,
             tokensInLiquidityPool,
@@ -42,13 +43,49 @@ export default function Cask() {
         });    
     };
 
+    const handleBuyClick = () => {
+        if (parseInt(inputValue) <= walletBalance) {
+            try {
+                // Execute buy function in the backend contract
+            } catch (error) {
+                console.error('Error executing buy function:', error);
+            }
+        } else {
+            setWarning('Insufficient wallet balance');
+        }
+    };
+
   return (
     <div className="">
+        {/* Display warning message */}
+        {warning && <p>{warning}</p>}
+
+
         <h2>Cask Id: {caskData.caskID}</h2>
         <p>Amount of tokens in liquidity pool that are present: {caskData.tokensInLiquidityPool}</p>
         <p>Age of cask: {caskData.ageOfCask}</p>
         <p>Price of token: {caskData.priceOfToken}</p>
         <p>Amount of tokens owned: {caskData.amountOfTokensOwned}</p>
+        <div className="Buy">
+            <input
+                type="number"
+                placeholder="Enter amount"
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+            />
+            <button onClick={handleBuyClick}>Buy</button>
+        </div>
+        <div className="Sell">
+            <input
+                type="number"
+                placeholder="Enter amount"
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+            />
+            <button onClick={handleSellClick}>Sell</button>
+        </div>
+
+
         <button onClick={() => setIsBuyClicked(true)}>Buy</button>
         {isBuyClicked && (
             <input placeholder="Enter amount"></input>
