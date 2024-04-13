@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { EthersContext } from "@/context/wallet";
 import Link from "next/link";
 import { useContext } from "react";
@@ -16,6 +16,23 @@ export default function Cask() {
         priceOfToken: 0,
         amountOfTokensOwned: 0
     });
+
+
+    useEffect(() => {
+        fetchData(); // Fetch data when component mounts
+    }, []);
+
+
+    const fetchData = async () => {
+            // make a call to fetch these data from the backend and get a [reponse] containing a list of the states
+        setCaskData({
+            caskID,
+            tokensInLiquidityPool,
+            ageOfCask,
+            priceOfToken,
+            amountOfTokensOwned
+        });    
+    };
 
   return (
     <div className="">
