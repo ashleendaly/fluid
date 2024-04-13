@@ -8,7 +8,9 @@ import { useContext } from "react";
 export default function Cask() {
     const [isBuyClicked, setIsBuyClicked] = useState(false);
     const [isSellClicked, setIsSellClicked] = useState(false);
-    // I have thse states and I want to set them to certain values using a fetch call to the backend
+
+
+    // I have these states and I want to set them to certain values using a fetch call to the backend
     const [caskData, setCaskData] = useState({  
         caskID: 0,     
         tokensInLiquidityPool: 0,
@@ -17,12 +19,19 @@ export default function Cask() {
         amountOfTokensOwned: 0
     });
 
+    
+    
+    
     useEffect(() => {
-        fetchData(); // Fetch data when component mounts
+        fetchCaskData(); // Fetch data when component mounts
+        fetchWalletBalance();
     }, []);
 
+    const fetchWalletBalance = async () => {
 
-    const fetchData = async () => {
+    }
+
+    const fetchCaskData = async () => {
             // make a call to fetch these data from the backend and get a [reponse] containing a list of the states
         setCaskData({
             caskID,
