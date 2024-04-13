@@ -17,7 +17,6 @@ export default function Cask() {
         amountOfTokensOwned: 0
     });
 
-
     useEffect(() => {
         fetchData(); // Fetch data when component mounts
     }, []);
@@ -42,15 +41,27 @@ export default function Cask() {
         <p>Price of token: {caskData.priceOfToken}</p>
         <p>Amount of tokens owned: {caskData.amountOfTokensOwned}</p>
         <button onClick={() => setIsBuyClicked(true)}>Buy</button>
-            {isBuyClicked && (
-                <input placeholder="Enter amount"></input>
-            )}
+        {isBuyClicked && (
+            <input placeholder="Enter amount"></input>
+            /* 
+                - try (XRP input < wallet balance) {
+                    trigger a function in contracts that will make token exchange
+                } catch {
+                    provide a warning.
+                }
+            */
+        )}
         <button onClick={() => setIsSellClicked(true)}> Sell</button>
         {isSellClicked && (
             <input placeholder="Enter amount">
             {/* 
-            if amount you enterd is an amount that is not sth you have, it gives a warning " you don't have this amount"
+            - try (sell input > cask tokens) {
+                call function in backend contract that makes the deal happen
+            } catch {
+                provide a warning.
+            }
             */}
+
             </input>
         )}              
     </div>
