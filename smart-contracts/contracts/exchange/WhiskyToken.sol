@@ -8,7 +8,10 @@ import "@openzeppelin/contracts/token/ERC1155/extensions/ERC1155Burnable.sol";
 
 import {WhiskySwapFactory} from "./WhiskySwapFactory.sol";
 
-contract CaskTokenContract is ERC1155, Ownable {
+contract CaskTokenContract is ERC1155, Ownable, ERC1155Burnable {
+    mapping(uint256 => uint256) private _tokenizationTimestamps; // mapping to store the tokenization timestamps
+    uint256 public constant annualAppreciationRate = 5; // Fixed annual appreciation rate of the whisky casks (5%)
+
     uint256[] private allCasksCreated;
     constructor(address initialOwner) ERC1155("") Ownable(initialOwner) {
 
@@ -20,9 +23,12 @@ contract CaskTokenContract is ERC1155, Ownable {
         address factoryAddress = 0xEc51A870f5397f6eC42D92A62E87b3Bc890B0DD9;
         _mint(factoryAddress, id, amount, defaultData);
 
-        WhiskySwapFactory WhiskeyFactory = WhiskySwapFactory(factoryAddress);
+        _tokenizationTimestamps[id] = block.timestamp; // Record the tokenization timestamp
 
+        WhiskySwapFactory WhiskeyFactory = WhiskySwapFactory(factoryAddress);
         WhiskeyFactory.createExchange(0xD5Cb53f53A2920C4e5e62908aEE103f702a0BDE5, 0x1D2F0da169ceB9fC7B3144628dB156f3F6c60dBE, id);
+
+        allCasksCreated.push(id);
 
     }
     
@@ -35,6 +41,12 @@ contract CaskTokenContract is ERC1155, Ownable {
             amounts[i] = 1000;
         }
         _mintBatch(to, ids, amounts, data);
+        }
+
+        // record tokenization time stamps
+        for (uint256 i = 0; i < ids.length; i++){
+            _tokenizationTimestamps[ids[i]] = block.timestamp;
+            allCasksCreated.push(ids[i]);
         }
 
     function generatePortfolio(address owner) public view returns (uint256[] memory) {
@@ -61,4 +73,11 @@ contract CaskTokenContract is ERC1155, Ownable {
          
     }
     
+    // calculate the current value of a cask based on its age
+    function getCurrentValue(uint256 tokenId) public view returns (uint256) {
+        require(_tokenizationTimestamps[tokenId] != 0, "Cask has not been tokenized");
+        uint256 ageInYears = (block.timestamp - _tokenizationTimestamps[tokenId]) / 1 years;
+        uint256 valueMultiplier = 1 + (annualAppreciationRate * ageInYears / 100);
+        return valueMultiplier;
+    }
 }
