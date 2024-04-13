@@ -1,32 +1,27 @@
 // SPDX-License-Identifier: MIT
+
 pragma solidity ^0.8.0;
 
-contract Counter {
-    uint private count;  // private variable to store the count
+import "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
-    // Event that is emitted whenever the count is updated
-    event CountUpdated(uint newCount);
+contract CaskTokenContract is ERC1155, Ownable {
+    unit265[] private allCasksCreated;
+    constructor(address initialOwner) ERC1155("") Ownable(initialOwner) {
 
-    // Constructor to initialize the counter
-    constructor() {
-        count = 0;
     }
 
-    // Function to get the current count
-    function getCount() public view returns (uint) {
-        return count;
+    function mintNewCask(address accountTokenBeingSentTo, uint256 id, bytes memory data) public {
+        bytes memory defaultData = hex"12";
+        uint256 amount = 1000;
+        _mint(accountTokenBeingSentTo, id, amount, data);
+        // call liquidity pool factory
     }
-
-    // Function to increment the count by 1
-    function increment() public {
-        count += 1;
-        emit CountUpdated(count);  // Emitting event after updating the count
+    
+    function generatePortfolio(address owner) public view returns (uint256[] memory) {
+        // get the number of cask token types that this person has
+        uint265 caskTokenTypeCount = 0;
+         
     }
-
-    // Function to decrement the count by 1
-    function decrement() public {
-        require(count > 0, "Counter: decrement overflow");
-        count -= 1;
-        emit CountUpdated(count);  // Emitting event after updating the count
-    }
+    
 }
