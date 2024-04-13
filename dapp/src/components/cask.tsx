@@ -12,10 +12,10 @@ export default function Cask() {
   return (
     <div className="">
         <h2>Cask Id: {}</h2>
-        <p>Amount of tokens in liquidity pool that are present: {}</p>
-        <p>Age of cask: </p>
-        <p>Price of token: </p>
-        <p>Amount of tokens owned: </p>
+        <p>Amount of tokens in liquidity pool that are present: {caskData.tokensInLiquidityPool}</p>
+        <p>Age of cask: {caskData.ageOfCask}</p>
+        <p>Price of token: {caskData.priceOfToken}</p>
+        <p>Amount of tokens owned: {caskData.amountOfTokensOwned}</p>
         <button onClick={() => setIsBuyClicked(true)}>Buy</button>
             {isBuyClicked && (
                 <input placeholder="Enter amount"></input>
