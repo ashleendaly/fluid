@@ -4,9 +4,7 @@ async function deployWhiskyToken() {
       "CaskTokenContract"
     );
 
-    const contract = await WhiskyToken.deploy(
-      "0x6C2127CEd02a0d9a3DC29A8BE472ecC72Ef7862d"
-    );
+    const contract = await WhiskyToken.deploy();
     console.log("Contract deployed at:", contract.target);
   } catch (error) {
     console.error(error);

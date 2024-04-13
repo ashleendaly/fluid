@@ -2,11 +2,10 @@
 pragma solidity ^0.8.4;
 
 import {WhiskySwapExchange} from "./WhiskySwapExchange.sol";
-import {Ownable} from "../utils/Ownable.sol";
 import {IWhiskySwapFactory} from "../interfaces/IWhiskySwapFactory.sol";
 import {IDelegatedERC1155Metadata, IERC1155Metadata} from "../interfaces/IDelegatedERC1155Metadata.sol";
 
-contract WhiskySwapFactory is IWhiskySwapFactory, Ownable, IDelegatedERC1155Metadata {
+contract WhiskySwapFactory is IWhiskySwapFactory, IDelegatedERC1155Metadata {
     // tokensToExchange[erc1155_token_address][currency_address][lp_fee][instance]
     mapping(address => mapping(address => mapping(uint256 => mapping(uint256 => address)))) public override
         tokensToExchange;
@@ -14,13 +13,7 @@ contract WhiskySwapFactory is IWhiskySwapFactory, Ownable, IDelegatedERC1155Meta
 
     // Metadata implementation
     IERC1155Metadata internal metadataContract; // address of the ERC-1155 Metadata contract
-
-    /**
-     * @notice Will set the initial WhiskySwap admin
-     * @param _admin Address of the initial niftyswap admin to set as Owner
-     */
-    constructor(address _admin) Ownable(_admin) {} // solhint-disable-line no-empty-blocks
-
+    
     //
     // Functions
     //
@@ -66,7 +59,7 @@ contract WhiskySwapFactory is IWhiskySwapFactory, Ownable, IDelegatedERC1155Meta
      * @dev This function changes the implementation for all child exchanges of the factory
      * @param _contract The address of the ERC-1155 Metadata contract
      */
-    function setMetadataContract(IERC1155Metadata _contract) external onlyOwner {
+    function setMetadataContract(IERC1155Metadata _contract) external {
         emit MetadataContractChanged(address(_contract));
         metadataContract = _contract;
     }
