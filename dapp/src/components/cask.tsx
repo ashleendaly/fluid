@@ -5,7 +5,7 @@ import { EthersContext } from "@/context/wallet"; // we connect the wallet in he
 import Link from "next/link";
 import { useContext } from "react";
 
-export default function Cask() {
+function Cask() {
     const [isBuyClicked, setIsBuyClicked] = useState(false);
     const [isSellClicked, setIsSellClicked] = useState(false);
     const [walletBalance, setWalletBalance] = useState(0);
@@ -125,3 +125,5 @@ export default function Cask() {
     </div>
   );
 }
+
+export default Cask
