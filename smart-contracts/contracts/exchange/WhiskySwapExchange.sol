@@ -196,7 +196,8 @@ contract WhiskySwapExchange is
     {
         // Reserves must not be empty
         require(_assetSoldReserve > 0 && _assetBoughtReserve > 0, "NE20#5"); // WhiskySwapExchange#getBuyPrice: EMPTY_RESERVE
-
+        // fetch current value multiplier based on token age
+        
         // Calculate price with fee
         uint256 numerator = _assetSoldReserve * _assetBoughtAmount * 1000;
         uint256 denominator = (_assetBoughtReserve - _assetBoughtAmount) * FEE_MULTIPLIER;

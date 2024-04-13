@@ -76,7 +76,7 @@ contract CaskTokenContract is ERC1155, Ownable, ERC1155Burnable {
     // calculate the current value of a cask based on its age
     function getCurrentValue(uint256 tokenId) public view returns (uint256) {
         require(_tokenizationTimestamps[tokenId] != 0, "Cask has not been tokenized");
-        uint256 ageInYears = (block.timestamp - _tokenizationTimestamps[tokenId]) / 1 years;
+        uint256 ageInYears = (block.timestamp - _tokenizationTimestamps[tokenId]) / 525600 minutes;
         uint256 valueMultiplier = 1 + (annualAppreciationRate * ageInYears / 100);
         return valueMultiplier;
     }
