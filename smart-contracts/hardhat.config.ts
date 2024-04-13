@@ -1,12 +1,13 @@
 import { HardhatUserConfig } from "hardhat/config";
 import "@nomicfoundation/hardhat-toolbox";
+require("dotenv").config();
 
 const config: HardhatUserConfig = {
-  defaultNetwork: "sepolia",
+  defaultNetwork: "sidechain",
   networks: {
     hardhat: {},
-    sepolia: {
-      url: process.env.SEPOLIA_URL,
+    sidechain: {
+      url: "https://rpc-evm-sidechain.xrpl.org",
       accounts: [process.env.PRIVATE_KEY || ""],
     },
   },
