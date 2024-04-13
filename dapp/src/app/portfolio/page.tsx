@@ -1,4 +1,12 @@
 import Link from "next/link";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
 type Portfolio = {
   caskId: number;
@@ -13,37 +21,37 @@ const testData: Portfolio[] = [
 const Portfolio = () => {
   return (
     <div className="p-5 flex flex-col gap-2">
-      <table>
-        <thead>
-          <tr>
-            <th>Asset</th>
-            <th>Price</th>
-            <th>Invested</th>
-            <th>Units</th>
-            <th>Trade</th>
-          </tr>
-        </thead>
-        <tbody>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead className="w-[100px]">Asset</TableHead>
+            <TableHead>Price</TableHead>
+            <TableHead>Invested</TableHead>
+            <TableHead>Units</TableHead>
+            <TableHead className="text-right">Trade</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
           {testData.map((cask) => {
             return (
-              <tr className="border p-3" key={cask.caskId}>
-                <td>{cask.caskId}</td>
-                <td>-</td>
-                <td>-</td>
-                <td>{cask.balance}</td>
-                <td>
+              <TableRow className="border p-3" key={cask.caskId}>
+                <TableCell>{cask.caskId}</TableCell>
+                <TableCell>-</TableCell>
+                <TableCell>-</TableCell>
+                <TableCell>{cask.balance}</TableCell>
+                <TableCell>
                   <Link
                     className="bg-green-400 p-1 px-2 rounded"
                     href={`/${cask.caskId}`}
                   >
                     Trade
                   </Link>
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             );
           })}
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
     </div>
   );
 };
