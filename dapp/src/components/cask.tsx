@@ -1,4 +1,4 @@
-"use client";
+"use client";   // we connect the wallet in here because we want to fetch the client balance.
 
 import { useState, useEffect } from 'react';
 import { EthersContext } from "@/context/wallet";
@@ -61,7 +61,6 @@ export default function Cask() {
                 provide a warning.
             }
             */}
-
             </input>
         )}              
     </div>
