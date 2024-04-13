@@ -106,7 +106,7 @@ interface IWhiskySwapExchange {
      * @param _assetBoughtAmount  Amount of Tokens being bought.
      * @param _assetSoldReserve   Amount of currency tokens in exchange reserves.
      * @param _assetBoughtReserve Amount of Tokens (output type) in exchange reserves.
-     * @return Amount of currency tokens to send to Niftyswap.
+     * @return Amount of currency tokens to send to WhiskySwap.
      */
     function getBuyPrice(uint256 _assetBoughtAmount, uint256 _assetSoldReserve, uint256 _assetBoughtReserve)
         external
@@ -118,7 +118,7 @@ interface IWhiskySwapExchange {
      * @param _assetSoldAmount    Amount of Tokens being sold.
      * @param _assetSoldReserve   Amount of Tokens in exchange reserves.
      * @param _assetBoughtReserve Amount of currency tokens in exchange reserves.
-     * @return Amount of currency tokens to receive from Niftyswap.
+     * @return Amount of currency tokens to receive from WhiskySwap.
      */
     function getSellPrice(uint256 _assetSoldAmount, uint256 _assetSoldReserve, uint256 _assetBoughtReserve)
         external

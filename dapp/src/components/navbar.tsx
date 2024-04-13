@@ -8,14 +8,16 @@ export default function Navbar() {
   const { address } = useContext(EthersContext);
 
   return (
-    <div className="bg-slate-800 text-white p-3 flex justify-between h-[5vh]">
-      <div className="flex gap-5">
+    <div className="bg-fbrown text-white p-3 flex justify-between h-[6vh]">
+      <div className="flex gap-5 items-center">
         <Link href={"/portfolio"}>Portfolio</Link>
         <Link href={"/discover"}>Discover</Link>
       </div>
       <div>
         {!address && <p>Connecting Wallet...</p>}
-        {address && <pre>Connected Wallet: {address}</pre>}
+        {address && (
+          <pre className="bg-green-400 p-1 px-2 rounded">Wallet Connected</pre>
+        )}
       </div>
     </div>
   );

@@ -17,7 +17,7 @@ contract WhiskySwapFactory is IWhiskySwapFactory {
     //
 
     /**
-     * @notice Creates a NiftySwap Exchange for given token contract
+     * @notice Creates a WhiskySwap Exchange for given token contract
      * @param _token      The address of the ERC-1155 token contract
      * @param _currency   The address of the currency token contract
      * @param _currencyID The id of the currency token

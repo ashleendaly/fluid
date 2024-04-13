@@ -3,10 +3,10 @@ pragma solidity ^0.8.4;
 
 import {IWhiskySwapExchange} from "../interfaces/IWhiskySwapExchange.sol";
 import {ReentrancyGuard} from "../utils/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
-// import {IERC165} from "@0xsequence/erc-1155/contracts/interfaces/IERC165.sol";
-// import {IERC1155} from "@0xsequence/erc-1155/contracts/interfaces/IERC1155.sol";
-// import {IERC1155TokenReceiver} from "@0xsequence/erc-1155/contracts/interfaces/IERC1155TokenReceiver.sol";
+import {IERC165} from "@0xsequence/erc-1155/contracts/interfaces/IERC165.sol";
+import {IERC1155} from "@0xsequence/erc-1155/contracts/interfaces/IERC1155.sol";
+import {IERC1155TokenReceiver} from "@0xsequence/erc-1155/contracts/interfaces/IERC1155TokenReceiver.sol";
+import {ERC1155MintBurn} from "@0xsequence/erc-1155/contracts/tokens/ERC1155/ERC1155MintBurn.sol";
 
 /**
  * This Uniswap-like implementation supports ERC-1155 standard tokens
@@ -23,7 +23,7 @@ import "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
  * errors when it comes to removing liquidity, possibly preventing them to be withdrawn without
  * some collaboration between liquidity providers.
  */
-contract WhiskySwapExchange is ReentrancyGuard, IWhiskySwapExchange { //deleted ERC1155MintBurn
+contract WhiskySwapExchange is ReentrancyGuard, ERC1155MintBurn, IWhiskySwapExchange {
     // Variables
     IERC1155 internal token; // address of the ERC-1155 token contract
     IERC1155 internal currency; // address of the ERC-1155 currency used for exchange
@@ -878,8 +878,8 @@ contract WhiskySwapExchange is ReentrancyGuard, IWhiskySwapExchange { //deleted 
      * This function MUST NOT consume more thsan 5,000 gas.
      * @return Whether a given interface is supported
      */
-    // function supportsInterface(bytes4 interfaceID) public pure override returns (bool) {
-    //     return interfaceID == type(IERC165).interfaceId || interfaceID == type(IERC1155).interfaceId
-    //         || interfaceID == type(IERC1155TokenReceiver).interfaceId;
-    //}
+    function supportsInterface(bytes4 interfaceID) public pure override returns (bool) {
+        return interfaceID == type(IERC165).interfaceId || interfaceID == type(IERC1155).interfaceId
+            || interfaceID == type(IERC1155TokenReceiver).interfaceId;
+    }
 }

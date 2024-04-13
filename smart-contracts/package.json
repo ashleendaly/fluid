@@ -13,6 +13,7 @@
     "hardhat": "^2.22.2"
   },
   "dependencies": {
+    "@0xsequence/erc-1155": "^4.0.3",
     "@openzeppelin/contracts": "^5.0.2"
   }
 }
