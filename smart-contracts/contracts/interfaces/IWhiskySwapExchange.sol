@@ -270,11 +270,11 @@ interface IWhiskySwapExchange {
 
     function getRoyaltiesNumerator(address _royaltyRecipient) external view returns (uint256);
 
-    /**
-     * @notice Retrieves the current value multiplier based on the age of the whisky token
-     * @param tokenId The unique identifier for a specific whisky cask token
-     * @return The current value multiplier for the specified token
-     */
-    function getCurrentValue(uint256 tokenId) external view returns (uint256);
+    // /**
+    //  * @notice Retrieves the current value multiplier based on the age of the whisky token
+    //  * @param tokenId The unique identifier for a specific whisky cask token
+    //  * @return The current value multiplier for the specified token
+    //  */
+    // function getCurrentValue(uint256 tokenId) external view returns (uint256);
 
 }
