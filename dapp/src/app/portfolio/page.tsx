@@ -19,8 +19,36 @@ import { ethers } from "ethers";
 // creating a data type.
 type SingleCask = {
   caskId: number;
+  price: number;
+  invested: number;
   balance: number; // number of units owned.
 };
+
+// Creating a list of items of type SingleCask
+const singleCasks: SingleCask[] = [
+  { caskId: 1, price: 100, invested: 80, balance: 10 },
+  { caskId: 2, price: 150, invested: 120, balance: 5 },
+  { caskId: 3, price: 200, invested: 160, balance: 20 },
+  { caskId: 4, price: 180, invested: 140, balance: 15 },
+  { caskId: 5, price: 120, invested: 100, balance: 8 },
+  { caskId: 6, price: 250, invested: 200, balance: 12 },
+  { caskId: 7, price: 300, invested: 240, balance: 25 },
+  { caskId: 8, price: 220, invested: 180, balance: 17 },
+  { caskId: 9, price: 280, invested: 220, balance: 30 },
+  { caskId: 10, price: 350, invested: 280, balance: 22 },
+  { caskId: 11, price: 190, invested: 150, balance: 18 },
+  { caskId: 12, price: 270, invested: 210, balance: 9 },
+  { caskId: 13, price: 240, invested: 190, balance: 14 },
+  { caskId: 14, price: 320, invested: 260, balance: 27 },
+  { caskId: 15, price: 280, invested: 220, balance: 19 },
+  { caskId: 16, price: 200, invested: 160, balance: 11 },
+  { caskId: 17, price: 330, invested: 270, balance: 23 },
+  { caskId: 18, price: 260, invested: 210, balance: 16 },
+  { caskId: 19, price: 210, invested: 170, balance: 7 },
+  { caskId: 20, price: 290, invested: 230, balance: 21 }
+  // Add more items as needed
+];
+
 
 const Portfolio = () => {
   const portfolio: SingleCask[] = [];
@@ -76,30 +104,20 @@ const Portfolio = () => {
       <Table className="w-full border-collapse">
         <TableHeader>
           <TableRow className="bg-gray-100">
-            <TableHead className="py-2 px-4 text-sm font-semibold text-gray-600">
-              Cask ID ({portfolioCasks.length})
-            </TableHead>
-            <TableHead className="py-2 px-4 text-sm font-semibold text-gray-600">
-              Price
-            </TableHead>
-            <TableHead className="py-2 px-4 text-sm font-semibold text-gray-600">
-              Invested (XRP)
-            </TableHead>
-            <TableHead className="py-2 px-4 text-sm font-semibold text-gray-600">
-              Tokens Owned
-            </TableHead>
-            <TableHead className="py-2 px-4 text-sm font-semibold text-gray-600 text-right">
-              Trade
-            </TableHead>
+            <TableHead className="py-2 px-4 text-sm font-semibold text-gray-600">Cask ID ({portfolioCasks.length})</TableHead>
+            <TableHead className="py-2 px-4 text-sm font-semibold text-gray-600">Price</TableHead>
+            <TableHead className="py-2 px-4 text-sm font-semibold text-gray-600">Invested (XRP)</TableHead>
+            <TableHead className="py-2 px-4 text-sm font-semibold text-gray-600">Tokens Owned</TableHead>
+            <TableHead className="py-2 px-4 text-sm font-semibold text-gray-600 text-right">Trade</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
-          {portfolioCasks.map((cask) => {
+          {singleCasks.map((cask) => {
             return (
               <TableRow className="border-b border-gray-200" key={cask.caskId}>
                 <TableCell className="py-2 px-4">{cask.caskId}</TableCell>
-                <TableCell className="py-2 px-4">-</TableCell>
-                <TableCell className="py-2 px-4"></TableCell>
+                <TableCell className="py-2 px-4">{cask.price}</TableCell>
+                <TableCell className="py-2 px-4">{cask.invested}</TableCell>
                 <TableCell className="py-2 px-4">{cask.balance}</TableCell>
                 <TableCell className="py-2 px-4 text-right">
                   <Link
