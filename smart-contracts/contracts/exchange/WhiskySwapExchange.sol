@@ -12,6 +12,7 @@ import {IERC1155} from "@0xsequence/erc-1155/contracts/interfaces/IERC1155.sol";
 import {IERC1155TokenReceiver} from "@0xsequence/erc-1155/contracts/interfaces/IERC1155TokenReceiver.sol";
 import {ERC1155MintBurn} from "@0xsequence/erc-1155/contracts/tokens/ERC1155/ERC1155MintBurn.sol";
 import {TransferHelper} from "@uniswap/lib/contracts/libraries/TransferHelper.sol";
+import {WhiskyToken} from "./WhiskyToken.sol";
 
 /**
  * This Uniswap-like implementation supports ERC-1155 standard tokens
@@ -148,7 +149,7 @@ contract WhiskySwapExchange is
             // Get amount of currency tokens to send for purchase
             // Neither reserves amount have been changed so far in this transaction, so
             // no adjustment to the inputs is needed
-            uint256 currencyAmount = getBuyPrice(amountBought, currencyReserve, tokenReserve);
+            uint256 currencyAmount = getBuyPrice(amountBought, currencyReserve, tokenReserve, _tokenIds[i]);
 
             // If royalty, increase amount buyer will need to pay after LP fees were calculated
             // Note: Royalty will be a bit higher since LF fees are added first
@@ -186,7 +187,7 @@ contract WhiskySwapExchange is
      * @param _assetBoughtReserve Amount of Tokens (output type) in exchange reserves.
      * @return price Amount of currency tokens to send to WhiskySwap.
      */
-    function getBuyPrice(uint256 _assetBoughtAmount, uint256 _assetSoldReserve, uint256 _assetBoughtReserve)
+    function getBuyPrice(uint256 _assetBoughtAmount, uint256 _assetSoldReserve, uint256 _assetBoughtReserve, uint256 _tokenId) //
         public
         view
         override
@@ -195,10 +196,12 @@ contract WhiskySwapExchange is
         // Reserves must not be empty
         require(_assetSoldReserve > 0 && _assetBoughtReserve > 0, "NE20#5"); // WhiskySwapExchange#getBuyPrice: EMPTY_RESERVE
         // fetch current value multiplier based on token age
+        uint256 valueMultiplier = WhiskyToken(token).getCurrentValue(_tokenId); //idk whether to use tokenId or tokenIds
+        uint256 adjustedTokenReserve = _assetBoughtReserve * valueMultiplier;
         
         // Calculate price with fee
         uint256 numerator = _assetSoldReserve * _assetBoughtAmount * 1000;
-        uint256 denominator = (_assetBoughtReserve - _assetBoughtAmount) * FEE_MULTIPLIER;
+        uint256 denominator = (adjustedTokenReserve - _assetBoughtAmount) * FEE_MULTIPLIER;
         (price,) = divRound(numerator, denominator);
         return price; // Will add 1 if rounding error
     }
@@ -217,7 +220,7 @@ contract WhiskySwapExchange is
         uint256 _assetSoldReserve,
         uint256 _assetBoughtReserve
     ) public view override returns (uint256 price) {
-        uint256 cost = getBuyPrice(_assetBoughtAmount, _assetSoldReserve, _assetBoughtReserve);
+        uint256 cost = getBuyPrice(_assetBoughtAmount, _assetSoldReserve, _assetBoughtReserve, _tokenId);
         (, uint256 royaltyAmount) = getRoyaltyInfo(_tokenId, cost);
         return cost + royaltyAmount;
     }
@@ -320,7 +323,7 @@ contract WhiskySwapExchange is
      * @param _assetBoughtReserve Amount of currency tokens in exchange reserves.
      * @return price Amount of currency tokens to receive from WhiskySwap.
      */
-    function getSellPrice(uint256 _assetSoldAmount, uint256 _assetSoldReserve, uint256 _assetBoughtReserve)
+    function getSellPrice(uint256 _assetSoldAmount, uint256 _assetSoldReserve, uint256 _assetBoughtReserve, uint256 _tokenID)
         public
         view
         override
@@ -329,10 +332,14 @@ contract WhiskySwapExchange is
         //Reserves must not be empty
         require(_assetSoldReserve > 0 && _assetBoughtReserve > 0, "NE20#9"); // WhiskySwapExchange#getSellPrice: EMPTY_RESERVE
 
+        // fetch current value multiplier based on token age
+        uint256 valueMultiplier = WhiskyToken(token).getCurrentValue(_tokenId);
+        uint256 adjustedTokenReserve = _assetBoughtReserve * valueMultiplier;
+
         // Calculate amount to receive (with fee) before royalty
         uint256 _assetSoldAmount_withFee = _assetSoldAmount * FEE_MULTIPLIER;
         uint256 numerator = _assetSoldAmount_withFee * _assetBoughtReserve;
-        uint256 denominator = (_assetSoldReserve * 1000) + _assetSoldAmount_withFee;
+        uint256 denominator = (adjustedTokenReserve * 1000) + _assetSoldAmount_withFee;
         return numerator / denominator; //Rounding errors will favor WhiskySwap, so nothing to do
     }
 
