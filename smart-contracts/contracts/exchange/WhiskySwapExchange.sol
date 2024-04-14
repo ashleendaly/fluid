@@ -3,7 +3,6 @@ pragma solidity ^0.8.4;
 
 import {IWhiskySwapExchange} from "../interfaces/IWhiskySwapExchange.sol";
 import {ReentrancyGuard} from "../utils/ReentrancyGuard.sol";
-import {DelegatedOwnable} from "../utils/DelegatedOwnable.sol";
 import {IERC2981} from "../interfaces/IERC2981.sol";
 import {IERC1155Metadata} from "../interfaces/IERC1155Metadata.sol";
 import {IDelegatedERC1155Metadata} from "../interfaces/IDelegatedERC1155Metadata.sol";
@@ -33,8 +32,7 @@ contract WhiskySwapExchange is
     ReentrancyGuard,
     ERC1155MintBurn,
     IWhiskySwapExchange,
-    IERC1155Metadata,
-    DelegatedOwnable
+    IERC1155Metadata
 {
     // Variables
     IERC1155 internal immutable token; // address of the ERC-1155 token contract
@@ -69,7 +67,7 @@ contract WhiskySwapExchange is
      * @param _lpFee    Fee that will go to LPs.
      * Number between 0 and 1000, where 10 is 1.0% and 100 is 10%.
      */
-    constructor(address _tokenAddr, address _currencyAddr, uint256 _lpFee) DelegatedOwnable(msg.sender) {
+    constructor(address _tokenAddr, address _currencyAddr, uint256 _lpFee) {
         require(
             _tokenAddr != address(0) && _currencyAddr != address(0),
             "NE20#1" // WhiskySwapExchange#constructor:INVALID_INPUT
@@ -84,7 +82,7 @@ contract WhiskySwapExchange is
         currency = _currencyAddr;
         FEE_MULTIPLIER = 1000 - _lpFee;
 
-        // If global royalty, lets check for ERC-2981 support
+        // // If global royalty, lets check for ERC-2981 support
         try IERC1155(_tokenAddr).supportsInterface(type(IERC2981).interfaceId) returns (bool supported) {
             IS_ERC2981 = supported;
         } catch {} // solhint-disable-line no-empty-blocks
@@ -379,7 +377,7 @@ contract WhiskySwapExchange is
         uint256[] memory _tokenAmounts,
         uint256[] memory _maxCurrency,
         uint256 _deadline
-    ) internal nonReentrant {
+    ) public nonReentrant {
         // Requirements
         // solhint-disable-next-line not-rely-on-time
         require(_deadline >= block.timestamp, "NE20#10"); // WhiskySwapExchange#_addLiquidity: DEADLINE_EXCEEDED
@@ -859,7 +857,7 @@ contract WhiskySwapExchange is
      * @param _fee       Fee pourcentage with a 10000 basis (e.g. 0.3% is 30 and 1% is 100 and 100% is 10000)
      * @param _recipient Address where to send the fees to
      */
-    function setRoyaltyInfo(uint256 _fee, address _recipient) public onlyOwner {
+    function setRoyaltyInfo(uint256 _fee, address _recipient) public {
         // Don't use IS_ERC2981 in case token contract was updated
         bool isERC2981 = token.supportsInterface(type(IERC2981).interfaceId);
         require(!isERC2981, "NE20#30"); // WhiskySwapExchange#setRoyaltyInfo: TOKEN SUPPORTS ERC-2981

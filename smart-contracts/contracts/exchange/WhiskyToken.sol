@@ -3,51 +3,49 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC1155/extensions/ERC1155Burnable.sol";
 
 import {WhiskySwapFactory} from "./WhiskySwapFactory.sol";
+import {WhiskySwapExchange} from "./WhiskySwapExchange.sol";
 
-contract CaskTokenContract is ERC1155, Ownable, ERC1155Burnable {
+contract CaskTokenContract is ERC1155, ERC1155Burnable {
     mapping(uint256 => uint256) private _tokenizationTimestamps; // mapping to store the tokenization timestamps
     uint256 public constant annualAppreciationRate = 5; // Fixed annual appreciation rate of the whisky casks (5%)
 
-    uint256[] private allCasksCreated;
-    constructor(address initialOwner) ERC1155("") Ownable(initialOwner) {
-
+    struct LiquidityAdditionParams {
+        uint256[] maxCurrency;
+        uint256 deadline;
     }
 
-    function mintNewCask(uint256 id) public {
+
+    uint256[] private allCasksCreated;
+    constructor() ERC1155("") {}
+
+    function newCask(uint256 id) public {
         bytes memory defaultData = hex"12";
         uint256 amount = 1000;
-        address factoryAddress = 0xEc51A870f5397f6eC42D92A62E87b3Bc890B0DD9;
-        _mint(factoryAddress, id, amount, defaultData);
-
-        _tokenizationTimestamps[id] = block.timestamp; // Record the tokenization timestamp
-
-        WhiskySwapFactory WhiskeyFactory = WhiskySwapFactory(factoryAddress);
-        WhiskeyFactory.createExchange(0xD5Cb53f53A2920C4e5e62908aEE103f702a0BDE5, 0x1D2F0da169ceB9fC7B3144628dB156f3F6c60dBE, id);
-
-        allCasksCreated.push(id);
-
+        _mint(msg.sender, id, amount, defaultData);
+        WhiskySwapFactory WhiskeyFactory = WhiskySwapFactory(0x50E8dD23dAa38A2C3384c49A90b079426d781838);
+        address token = address(this);
+        address currency = 0x1D2F0da169ceB9fC7B3144628dB156f3F6c60dBE;
+        uint256 LPFee = 10;
+        WhiskeyFactory.createExchange(token, currency, LPFee, id);
+        address exchangeAddress = WhiskeyFactory.tokensToExchange(token, currency,LPFee, id);
+        addLiquidityToExchange(exchangeAddress, id);
     }
-    
-    function mintBatch(address to, uint256[] memory ids, bytes memory data) public {
-        // get the size of the ids list
-        uint256 numberOfCasksinBatch = ids.length;
-        // amounts = size of the id list * 1000
-        uint256[] memory amounts = new uint256[] (numberOfCasksinBatch);
-        for (uint256 i = 0; i < numberOfCasksinBatch; i++){
-            amounts[i] = 1000;
-        }
-        _mintBatch(to, ids, amounts, data);
-        }
 
-        // record tokenization time stamps
-        for (uint256 i = 0; i < ids.length; i++){
-            _tokenizationTimestamps[ids[i]] = block.timestamp;
-            allCasksCreated.push(ids[i]);
-        }
+    function addLiquidityToExchange(address exchangeAddress, uint256 id) public {
+        WhiskySwapExchange exchange = WhiskySwapExchange(exchangeAddress);
+        uint256[] memory ids = new uint256[](1);
+        uint256[] memory amounts = new uint256[](1);
+        uint256[] memory _maxCurrency = new uint256[](1);
+
+        ids[0] = id;
+        amounts[0] = 1000;  
+        _maxCurrency[0] = 1000; 
+
+        exchange._addLiquidity(msg.sender, ids, amounts, _maxCurrency, block.timestamp + 50 minutes);
+    }
 
     function generatePortfolio(address owner) public view returns (uint256[] memory) {
         // get the number of cask token types that this person has

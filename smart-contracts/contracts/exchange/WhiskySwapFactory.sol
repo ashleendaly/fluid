@@ -33,11 +33,11 @@ contract WhiskySwapFactory is IWhiskySwapFactory, IDelegatedERC1155Metadata {
         // Create new exchange contract
         WhiskySwapExchange exchange = new WhiskySwapExchange(_token, _currency, _lpFee);
 
-        // Store exchange and token addresses
+        // // Store exchange and token addresses
         tokensToExchange[_token][_currency][_lpFee][_instance] = address(exchange);
         pairExchanges[_token][_currency].push(address(exchange));
 
-        // Emit event
+        // // Emit event
         emit NewExchange(_token, _currency, _instance, _lpFee, address(exchange));
     }
 
