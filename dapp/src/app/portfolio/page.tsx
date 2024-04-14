@@ -1,7 +1,7 @@
-"use client"
+"use client";
 
 import Link from "next/link";
-import { useState, useEffect, useContext } from 'react';
+import { useState, useEffect, useContext } from "react";
 
 import {
   Table,
@@ -11,6 +11,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { whiskyTokenAddress } from "@/smart-contracts";
+import CaskTokenContract from "../../contracts/CaskTokenContract.json";
+import { EthersContext } from "@/context/wallet";
+import { ethers } from "ethers";
 
 // creating a data type.
 type SingleCask = {
@@ -18,17 +22,15 @@ type SingleCask = {
   balance: number; // number of units owned.
 };
 
-
 const Portfolio = () => {
-
   const portfolio: SingleCask[] = [];
   const [price, setPrice] = useState(0);
+  const { signer, address } = useContext(EthersContext);
 
   useEffect(() => {
     fetchPortfolioCasks();
     fetchCurrentPrice();
   }, []);
-
 
   const portfolioCasks: SingleCask[] = [
     // we want to fill this with data after fetching that data from the backend (see below)
@@ -37,29 +39,35 @@ const Portfolio = () => {
   // THIS IS PSEUDOCODE
   // fetching from backend AND setting portfolio variable.
   const fetchPortfolioCasks = async () => {
-    // invoke function that generates portfolio from contract. 
-    // remember this returns a list of IDs and we'll use that to 
-    const tokenContract = new ethers.Contract(
-      whiskySwapFactoryAddress,
-      WhiskySwapFactory.abi,
-      signer
-    );
-    casksHeldByID = contact.generatePorfolio();
-    // based on the id
-    for (let i = 0; i < casksHeldByID.length; i++) {
-      const singleCask: SingleCask = { caskId: casksHeldByID[i], balance: balanceOf(owner, casksHeldByID[i]) }
-      portfolio.push(singleCask)
+    // invoke function that generates portfolio from contract.
+    // remember this returns a list of IDs and we'll use that to
+    if (signer) {
+      const tokenContract = new ethers.Contract(
+        whiskyTokenAddress,
+        CaskTokenContract.abi,
+        signer
+      );
+      const casksHeldByID = await tokenContract.generatePortfolio(address);
+      console.log(casksHeldByID);
     }
-  }
+
+    // based on the id
+    // for (let i = 0; i < casksHeldByID.length; i++) {
+    //   const singleCask: SingleCask = {
+    //     caskId: casksHeldByID[i],
+    //     balance: balanceOf(owner, casksHeldByID[i]),
+    //   };
+    //   portfolio.push(singleCask);
+    // }
+  };
 
   const fetchCurrentPrice = async () => {
     // TODO: make a call to the liquidity pool contract that enable us to get price through the getBuyPrice method.
     setPrice(price);
-  }
-
+  };
 
   // Cask is the cask ID fetched above.
-  // Price is the 
+  // Price is the
   // Invested is the number of XRP invested to get these cask tokens : when the user invokes a the function in one of the contracts to "buy" tokens using XRP, that has to update the above with the amount of XRP
   // Units Owned is the same "balance" in Portfolio data type above- it gets fetched.
 
@@ -68,11 +76,21 @@ const Portfolio = () => {
       <Table className="w-full border-collapse">
         <TableHeader>
           <TableRow className="bg-gray-100">
-            <TableHead className="py-2 px-4 text-sm font-semibold text-gray-600">Cask ID ({portfolioCasks.length})</TableHead>
-            <TableHead className="py-2 px-4 text-sm font-semibold text-gray-600">Price</TableHead>
-            <TableHead className="py-2 px-4 text-sm font-semibold text-gray-600">Invested (XRP)</TableHead>
-            <TableHead className="py-2 px-4 text-sm font-semibold text-gray-600">Tokens Owned</TableHead>
-            <TableHead className="py-2 px-4 text-sm font-semibold text-gray-600 text-right">Trade</TableHead>
+            <TableHead className="py-2 px-4 text-sm font-semibold text-gray-600">
+              Cask ID ({portfolioCasks.length})
+            </TableHead>
+            <TableHead className="py-2 px-4 text-sm font-semibold text-gray-600">
+              Price
+            </TableHead>
+            <TableHead className="py-2 px-4 text-sm font-semibold text-gray-600">
+              Invested (XRP)
+            </TableHead>
+            <TableHead className="py-2 px-4 text-sm font-semibold text-gray-600">
+              Tokens Owned
+            </TableHead>
+            <TableHead className="py-2 px-4 text-sm font-semibold text-gray-600 text-right">
+              Trade
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>

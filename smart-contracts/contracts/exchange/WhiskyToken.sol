@@ -25,7 +25,7 @@ contract CaskTokenContract is ERC1155, ERC1155Burnable {
         bytes memory defaultData = hex"12";
         uint256 amount = 1000;
         _mint(msg.sender, id, amount, defaultData);
-        WhiskySwapFactory WhiskeyFactory = WhiskySwapFactory(0x50E8dD23dAa38A2C3384c49A90b079426d781838);
+        WhiskySwapFactory WhiskeyFactory = WhiskySwapFactory(0xA88648DD674d31B5756d6b5863BCeEFd6c96BE5F);
         address token = address(this);
         address currency = 0x1D2F0da169ceB9fC7B3144628dB156f3F6c60dBE;
         uint256 LPFee = 10;

@@ -2,7 +2,6 @@
 pragma solidity ^0.8.4;
 
 import {IWhiskySwapExchange} from "../interfaces/IWhiskySwapExchange.sol";
-import {ReentrancyGuard} from "../utils/ReentrancyGuard.sol";
 import {IERC2981} from "../interfaces/IERC2981.sol";
 import {IERC1155Metadata} from "../interfaces/IERC1155Metadata.sol";
 import {IDelegatedERC1155Metadata} from "../interfaces/IDelegatedERC1155Metadata.sol";
@@ -12,7 +11,6 @@ import {IERC1155} from "@0xsequence/erc-1155/contracts/interfaces/IERC1155.sol";
 import {IERC1155TokenReceiver} from "@0xsequence/erc-1155/contracts/interfaces/IERC1155TokenReceiver.sol";
 import {ERC1155MintBurn} from "@0xsequence/erc-1155/contracts/tokens/ERC1155/ERC1155MintBurn.sol";
 import {TransferHelper} from "@uniswap/lib/contracts/libraries/TransferHelper.sol";
-import {WhiskyToken} from "./WhiskyToken.sol";
 
 /**
  * This Uniswap-like implementation supports ERC-1155 standard tokens
@@ -30,7 +28,6 @@ import {WhiskyToken} from "./WhiskyToken.sol";
  * carefully before using it with ERC-777 tokens.
  */
 contract WhiskySwapExchange is
-    ReentrancyGuard,
     ERC1155MintBurn,
     IWhiskySwapExchange,
     IERC1155Metadata
@@ -116,7 +113,7 @@ contract WhiskySwapExchange is
         uint256 _maxCurrency,
         uint256 _deadline,
         address _recipient
-    ) internal nonReentrant returns (uint256[] memory currencySold) {
+    ) internal returns (uint256[] memory currencySold) {
         // Input validation
         // solhint-disable-next-line not-rely-on-time
         require(_deadline >= block.timestamp, "NE20#3"); // WhiskySwapExchange#_currencyToToken: DEADLINE_EXCEEDED
@@ -149,7 +146,7 @@ contract WhiskySwapExchange is
             // Get amount of currency tokens to send for purchase
             // Neither reserves amount have been changed so far in this transaction, so
             // no adjustment to the inputs is needed
-            uint256 currencyAmount = getBuyPrice(amountBought, currencyReserve, tokenReserve, _tokenIds[i]);
+            uint256 currencyAmount = getBuyPrice(amountBought, currencyReserve, tokenReserve);
 
             // If royalty, increase amount buyer will need to pay after LP fees were calculated
             // Note: Royalty will be a bit higher since LF fees are added first
@@ -187,7 +184,7 @@ contract WhiskySwapExchange is
      * @param _assetBoughtReserve Amount of Tokens (output type) in exchange reserves.
      * @return price Amount of currency tokens to send to WhiskySwap.
      */
-    function getBuyPrice(uint256 _assetBoughtAmount, uint256 _assetSoldReserve, uint256 _assetBoughtReserve, uint256 _tokenId) //
+    function getBuyPrice(uint256 _assetBoughtAmount, uint256 _assetSoldReserve, uint256 _assetBoughtReserve)
         public
         view
         override
@@ -196,12 +193,10 @@ contract WhiskySwapExchange is
         // Reserves must not be empty
         require(_assetSoldReserve > 0 && _assetBoughtReserve > 0, "NE20#5"); // WhiskySwapExchange#getBuyPrice: EMPTY_RESERVE
         // fetch current value multiplier based on token age
-        uint256 valueMultiplier = WhiskyToken(token).getCurrentValue(_tokenId); //idk whether to use tokenId or tokenIds
-        uint256 adjustedTokenReserve = _assetBoughtReserve * valueMultiplier;
         
         // Calculate price with fee
         uint256 numerator = _assetSoldReserve * _assetBoughtAmount * 1000;
-        uint256 denominator = (adjustedTokenReserve - _assetBoughtAmount) * FEE_MULTIPLIER;
+        uint256 denominator = (_assetBoughtReserve - _assetBoughtAmount) * FEE_MULTIPLIER;
         (price,) = divRound(numerator, denominator);
         return price; // Will add 1 if rounding error
     }
@@ -220,7 +215,7 @@ contract WhiskySwapExchange is
         uint256 _assetSoldReserve,
         uint256 _assetBoughtReserve
     ) public view override returns (uint256 price) {
-        uint256 cost = getBuyPrice(_assetBoughtAmount, _assetSoldReserve, _assetBoughtReserve, _tokenId);
+        uint256 cost = getBuyPrice(_assetBoughtAmount, _assetSoldReserve, _assetBoughtReserve);
         (, uint256 royaltyAmount) = getRoyaltyInfo(_tokenId, cost);
         return cost + royaltyAmount;
     }
@@ -247,7 +242,7 @@ contract WhiskySwapExchange is
         address _recipient,
         address[] memory _extraFeeRecipients,
         uint256[] memory _extraFeeAmounts
-    ) internal nonReentrant returns (uint256[] memory currencyBought) {
+    ) internal returns (uint256[] memory currencyBought) {
         // Number of Token IDs to deposit
         uint256 nTokens = _tokenIds.length;
 
@@ -323,7 +318,7 @@ contract WhiskySwapExchange is
      * @param _assetBoughtReserve Amount of currency tokens in exchange reserves.
      * @return price Amount of currency tokens to receive from WhiskySwap.
      */
-    function getSellPrice(uint256 _assetSoldAmount, uint256 _assetSoldReserve, uint256 _assetBoughtReserve, uint256 _tokenID)
+    function getSellPrice(uint256 _assetSoldAmount, uint256 _assetSoldReserve, uint256 _assetBoughtReserve)
         public
         view
         override
@@ -332,14 +327,10 @@ contract WhiskySwapExchange is
         //Reserves must not be empty
         require(_assetSoldReserve > 0 && _assetBoughtReserve > 0, "NE20#9"); // WhiskySwapExchange#getSellPrice: EMPTY_RESERVE
 
-        // fetch current value multiplier based on token age
-        uint256 valueMultiplier = WhiskyToken(token).getCurrentValue(_tokenId);
-        uint256 adjustedTokenReserve = _assetBoughtReserve * valueMultiplier;
-
         // Calculate amount to receive (with fee) before royalty
         uint256 _assetSoldAmount_withFee = _assetSoldAmount * FEE_MULTIPLIER;
         uint256 numerator = _assetSoldAmount_withFee * _assetBoughtReserve;
-        uint256 denominator = (adjustedTokenReserve * 1000) + _assetSoldAmount_withFee;
+        uint256 denominator = (_assetSoldReserve * 1000) + _assetSoldAmount_withFee;
         return numerator / denominator; //Rounding errors will favor WhiskySwap, so nothing to do
     }
 
@@ -384,7 +375,7 @@ contract WhiskySwapExchange is
         uint256[] memory _tokenAmounts,
         uint256[] memory _maxCurrency,
         uint256 _deadline
-    ) public nonReentrant {
+    ) public {
         // Requirements
         // solhint-disable-next-line not-rely-on-time
         require(_deadline >= block.timestamp, "NE20#10"); // WhiskySwapExchange#_addLiquidity: DEADLINE_EXCEEDED
@@ -563,7 +554,7 @@ contract WhiskySwapExchange is
         uint256[] memory _minCurrency,
         uint256[] memory _minTokens,
         uint256 _deadline
-    ) internal nonReentrant {
+    ) internal {
         // Input validation
         // solhint-disable-next-line not-rely-on-time
         require(_deadline > block.timestamp, "NE20#15"); // WhiskySwapExchange#_removeLiquidity: DEADLINE_EXCEEDED

@@ -14,10 +14,9 @@ import WhiskySwapExchange from "../contracts/WhiskySwapExchange.json";
 
 function Cask() {
   const params = useParams<{ caskId: string }>();
-  const { signer } = useContext(EthersContext);
+  const { signer, address } = useContext(EthersContext);
   const [isBuyClicked, setIsBuyClicked] = useState(false);
   const [isSellClicked, setIsSellClicked] = useState(false);
-  const [walletBalance, setWalletBalance] = useState(0);
   const [warning, setWarning] = useState("");
   const [inputBuyValue, setinputBuyValue] = useState("");
   const [inputSellValue, setinputSellValue] = useState("");
@@ -25,21 +24,16 @@ function Cask() {
   const [caskData, setCaskData] = useState({
     caskID: 0,
     tokensInLiquidityPool: 0,
-    ageOfCask: 0,
-    priceOfToken: 0,
-    amountOfTokensOwned: 0,
   });
+  const [contractAddress, setContractAddress] = useState("");
+
+  const { One } = ethers.constants;
 
   // Fetch initial cask and wallet data when component mounts
   useEffect(() => {
+    if (!signer) return;
     fetchCaskData();
-    fetchWalletBalance();
-  }, []);
-
-  const fetchWalletBalance = async () => {
-    // TODO: make a call to wallet to fetch walletBlance.
-    setWalletBalance(walletBalance);
-  };
+  }, [signer]);
 
   const fetchCaskData = async () => {
     const factoryContract = new ethers.Contract(
@@ -53,10 +47,11 @@ function Cask() {
         whiskyTokenAddress,
         xrpCurrencyAddress,
         10,
-        params.caskId ? parseInt(params.caskId) : undefined
+        parseInt(params.caskId)
       );
 
       if (liquidityPoolAddress) {
+        setContractAddress(liquidityPoolAddress);
         const liquidityPool = new ethers.Contract(
           liquidityPoolAddress,
           WhiskySwapExchange.abi,
@@ -64,32 +59,44 @@ function Cask() {
         );
 
         const tokensInLiquidityPool = await liquidityPool.getCurrencyReserves([
-          params.caskId ? parseInt(params.caskId) : undefined,
+          params.caskId ? [parseInt(params.caskId)] : undefined,
         ]);
-        console.log(tokensInLiquidityPool);
+        console.log(tokensInLiquidityPool.toString());
+
+        setCaskData({
+          caskID: parseInt(params.caskId),
+          tokensInLiquidityPool: parseInt(tokensInLiquidityPool.toString()),
+        });
       }
     } catch (error) {
       console.error("Error fetching data:", error);
     }
-
-    // setCaskData({
-    //   caskID: parseInt(params.caskId),
-    //   //   tokensInLiquidityPool,
-    //   //   ageOfCask,
-    //   //   priceOfToken,
-    //   //   amountOfTokensOwned,
-    // });
   };
 
-  const handleBuyClick = () => {
-    if (parseInt(inputBuyValue) <= walletBalance) {
-      try {
-        // Execute buy function in the backend contract
-      } catch (error) {
-        console.error("Error executing buy function:", error);
-      }
-    } else {
-      setWarning("Insufficient wallet balance");
+  const handleBuyClick = async () => {
+    const contract = new ethers.Contract(
+      contractAddress,
+      WhiskySwapExchange.abi,
+      signer
+    );
+    try {
+      const deadline = Math.floor(Date.now() / 1000) + 100000;
+      const transaction = await contract.buyTokens(
+        [parseInt(params.caskId)],
+        [One],
+        100000,
+        deadline,
+        address,
+        [],
+        [],
+        {
+          gasLimit: 8000000,
+        }
+      );
+      await transaction.wait();
+      console.log("Transaction successful:", transaction);
+    } catch (error) {
+      console.error(error);
     }
   };
 
@@ -127,9 +134,9 @@ function Cask() {
             Amount of tokens in liquidity pool that are present:{" "}
             {caskData.tokensInLiquidityPool}
           </p>
-          <p>Age of cask: {caskData.ageOfCask}</p>
+          {/* <p>Age of cask: {caskData.ageOfCask}</p>
           <p>Price of token: {caskData.priceOfToken}</p>
-          <p>Amount of tokens owned: {caskData.amountOfTokensOwned}</p>
+          <p>Amount of tokens owned: {caskData.amountOfTokensOwned}</p> */}
         </div>
 
         <div className="absolute left-7 top-60 flex flex-col justify-center items-center">
