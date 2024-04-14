@@ -8,7 +8,7 @@ export default function Navbar() {
   const { address } = useContext(EthersContext);
 
   return (
-    <div className="bg-fbrown text-white p-3 flex justify-between h-[6vh]">
+    <div className="bg-black text-white p-3 flex justify-between h-[6vh]">
       <div className="flex gap-5 items-center">
         <Link href={"/portfolio"}>Portfolio</Link>
         <Link href={"/discover"}>Discover</Link>

@@ -1,10 +1,11 @@
 import Cask from '../../components/cask'
 
-const Trade = () => {
-  return 
-  <div>
-    <Cask></Cask>
-  </div>;
+const CaskPage = () => {
+  return (
+    <div>
+      <Cask />
+    </div>
+  )
 };
 
-export default Trade;
+export default CaskPage;

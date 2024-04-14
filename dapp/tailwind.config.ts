@@ -13,6 +13,9 @@ const config: Config = {
           DEFAULT: "#473520",
         },
       },
+      backgroundImage: {
+        'casks': "url('/casks.jpeg')"
+      }
     },
   },
   plugins: [],
