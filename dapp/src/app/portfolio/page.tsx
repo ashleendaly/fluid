@@ -1,3 +1,5 @@
+"use client"
+
 import Link from "next/link";
 import { useState, useEffect, useContext } from 'react';
 
@@ -14,7 +16,6 @@ import {
 type SingleCask = {
   caskId: number;
   balance: number; // number of units owned.
-  invested: number; // number of XRP had been invested at the exchange
 };
 
 
@@ -38,9 +39,14 @@ const Portfolio = () => {
   const fetchPortfolioCasks = async () => {
     // invoke function that generates portfolio from contract. 
     // remember this returns a list of IDs and we'll use that to 
-    casksHeldByID = contact.generatePorfolio;
+    const tokenContract = new ethers.Contract(
+      whiskySwapFactoryAddress,
+      WhiskySwapFactory.abi,
+      signer
+    );
+    casksHeldByID = contact.generatePorfolio();
     // based on the id
-    for (uint256 i = 0; i < casksHeldByID.length; i++) {
+    for (let i = 0; i < casksHeldByID.length; i++) {
       const singleCask: SingleCask = { caskId: casksHeldByID[i], balance: balanceOf(owner, casksHeldByID[i]) }
       portfolio.push(singleCask)
     }
@@ -62,7 +68,7 @@ const Portfolio = () => {
       <Table className="w-full border-collapse">
         <TableHeader>
           <TableRow className="bg-gray-100">
-            <TableHead className="py-2 px-4 text-sm font-semibold text-gray-600">Cask ID ({testData.length})</TableHead>
+            <TableHead className="py-2 px-4 text-sm font-semibold text-gray-600">Cask ID ({portfolioCasks.length})</TableHead>
             <TableHead className="py-2 px-4 text-sm font-semibold text-gray-600">Price</TableHead>
             <TableHead className="py-2 px-4 text-sm font-semibold text-gray-600">Invested (XRP)</TableHead>
             <TableHead className="py-2 px-4 text-sm font-semibold text-gray-600">Tokens Owned</TableHead>
@@ -70,12 +76,12 @@ const Portfolio = () => {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {testData.map((cask) => {
+          {portfolioCasks.map((cask) => {
             return (
               <TableRow className="border-b border-gray-200" key={cask.caskId}>
                 <TableCell className="py-2 px-4">{cask.caskId}</TableCell>
                 <TableCell className="py-2 px-4">-</TableCell>
-                <TableCell className="py-2 px-4">{cask.invested}</TableCell>
+                <TableCell className="py-2 px-4"></TableCell>
                 <TableCell className="py-2 px-4">{cask.balance}</TableCell>
                 <TableCell className="py-2 px-4 text-right">
                   <Link
