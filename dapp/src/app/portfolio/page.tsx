@@ -1,5 +1,5 @@
 import Link from "next/link";
-// import { useState, useEffect, useContext } from 'react';
+import { useState, useEffect, useContext } from 'react';
 
 import {
   Table,
@@ -11,42 +11,40 @@ import {
 } from "@/components/ui/table";
 
 // creating a data type.
-// type SingleCask = {
-//   caskId: number;
-//   balance: number;
-// };
+type SingleCask = {
+  caskId: number;
+  balance: number; // number of units owned.
+  invested: number; // number of XRP had been invested at the exchange
+};
 
 
 const Portfolio = () => {
 
-  // const portfolio: SingleCask[] = [];
-  // const [price, setPrice] = useState(0);
+  const portfolio: SingleCask[] = [];
+  const [price, setPrice] = useState(0);
 
-  // useEffect(() => {
-  //   fetchPortfolioCasks();
-  //   fetchCurrentPrice();
-  // }, []);
+  useEffect(() => {
+    fetchPortfolioCasks();
+    fetchCurrentPrice();
+  }, []);
 
-  type Portfolio = {
-    caskId: number;
-    balance: number; // number of units owned.
-    invested: number; // number of XRP had been invested at the exchange
-  };
 
-  const testData: Portfolio[] = [
-    { caskId: 1, balance: 100, invested: 10 },
-    { caskId: 2, balance: 200, invested: 15 },
+  const portfolioCasks: SingleCask[] = [
+    // we want to fill this with data after fetching that data from the backend (see below)
   ];
 
-
-  // // fetching from backend AND setting portfolio variable.
-  // const fetchPortfolioCasks = async () => {
-  //   // casksHeldByID = contact.generatePorfolio;
-  //   // for (uint256 i = 0; i < casksHeldByID.length; i++) {
-  //   //   const singleCask: SingleCask = { caskId: casksHeldByID[i], balance: balanceOf(owner, casksHeldByID[i]) }
-  //   //   portfolio.push(singleCask)
-  //   // }
-  // }
+  // THIS IS PSEUDOCODE
+  // fetching from backend AND setting portfolio variable.
+  const fetchPortfolioCasks = async () => {
+    // invoke function that generates portfolio from contract. 
+    // remember this returns a list of IDs and we'll use that to 
+    casksHeldByID = contact.generatePorfolio;
+    // based on the id
+    for (uint256 i = 0; i < casksHeldByID.length; i++) {
+      const singleCask: SingleCask = { caskId: casksHeldByID[i], balance: balanceOf(owner, casksHeldByID[i]) }
+      portfolio.push(singleCask)
+    }
+  }
 
   const fetchCurrentPrice = async () => {
     // TODO: make a call to the liquidity pool contract that enable us to get price through the getBuyPrice method.
